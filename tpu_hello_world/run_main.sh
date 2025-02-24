@@ -1,15 +1,11 @@
 #!/bin/bash
 
-# Enable error handling and command tracing
-set -e  # Exit on error
-set -x  # Print commands as they are executed
-
-# Function for logging
+# --- HELPER FUNCTIONS ---
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] $1"
 }
 
-# Function for error handling
 handle_error() {
     local line_no=$1
     local error_code=$2
@@ -17,55 +13,70 @@ handle_error() {
     exit $error_code
 }
 
-# Set up error trap
+# Set up error trapping
 trap 'handle_error ${LINENO} $?' ERR
 
-log "Starting main.py execution on TPU VM..."
+# --- MAIN SCRIPT ---
+log 'Starting TPU execution process...'
 
-# Load environment variables from .env file
-log "Loading environment variables..."
+log 'Loading environment variables...'
 source .env
-log "Environment variables loaded successfully"
+log 'Environment variables loaded successfully'
 
-# Set the service account credentials
-log "Setting up service account credentials..."
-export GOOGLE_APPLICATION_CREDENTIALS="$SERVICE_ACCOUNT_JSON"
+log 'Setting up service account credentials...'
+export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
 
-# Verify the credentials file exists
 if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-    log "ERROR: Service account JSON file not found at $GOOGLE_APPLICATION_CREDENTIALS"
-    log "Please ensure you have copied your service account JSON file to: $(pwd)/$SERVICE_ACCOUNT_JSON"
+    log "ERROR: Service account credentials file not found at: $GOOGLE_APPLICATION_CREDENTIALS"
     exit 1
 fi
-log "Service account credentials file found"
+log 'Service account credentials file found'
 
-# Authenticate with the service account
-log "Authenticating with service account..."
+log 'Authenticating with service account...'
 gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-log "Service account authentication successful"
+log 'Service account authentication successful'
 
-# Verify TPU VM exists before attempting to run
+# Verify TPU VM exists
 log "Verifying TPU VM exists..."
-if ! gcloud compute tpus tpu-vm describe $TPU_NAME --zone=$ZONE --project=$PROJECT_ID > /dev/null 2>&1; then
-    log "ERROR: TPU VM '$TPU_NAME' not found in zone $ZONE"
-    log "Please run setup_tpu.sh first to create the TPU VM"
+if ! gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" &> /dev/null; then
+    log "ERROR: TPU VM '$TPU_NAME' not found. Please run setup_tpu.sh first."
     exit 1
 fi
-log "TPU VM '$TPU_NAME' found and available"
+log "TPU VM found successfully"
 
-# Verify SSH connection to TPU VM
-log "Verifying SSH connection to TPU VM..."
-if ! gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$ZONE --command="echo 'SSH connection test'" > /dev/null 2>&1; then
-    log "ERROR: Failed to establish SSH connection to TPU VM"
-    exit 1
-fi
-log "SSH connection verified"
+# Install necessary packages
+log "Installing PyTorch/XLA on the TPU VM..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all \
+    --command="pip install torch torch_xla -f https://storage.googleapis.com/libtpu-releases/index.html"
+log "PyTorch/XLA installation completed"
 
-# Run the main.py script on the TPU VM
+# Set the PJRT_DEVICE environment variable
+log "Setting PJRT_DEVICE environment variable..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all \
+    --command="export PJRT_DEVICE=TPU && echo \$PJRT_DEVICE"
+log "Environment variables configured"
+
+# Copy the latest version of main.py to the TPU VM
+log "Copying latest version of main.py to TPU VM..."
+gcloud compute tpus tpu-vm scp main.py "$TPU_NAME": \
+    --zone="$ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all
+log "File transfer completed"
+
+# Run the main.py script
 log "Executing main.py on TPU VM..."
-gcloud compute tpus tpu-vm ssh $TPU_NAME \
-    --zone=$ZONE \
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all \
     --command="python3 main.py"
-log "Script execution completed successfully"
+log "Script execution completed"
 
-log "All operations completed successfully." 
+log "TPU execution process completed successfully." 

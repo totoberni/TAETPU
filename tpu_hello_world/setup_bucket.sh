@@ -17,14 +17,14 @@ handle_error() {
 trap 'handle_error ${LINENO} $?' ERR
 
 # --- MAIN SCRIPT ---
-log 'Starting TPU setup process...'
+log 'Starting GCS bucket setup process...'
 
 log 'Loading environment variables...'
 source .env
 log 'Environment variables loaded successfully'
 
 log 'Setting up service account credentials...'
-# Use absolute path for reliability
+# Use absolute path
 export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
 
 if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
@@ -33,28 +33,26 @@ if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
 fi
 log 'Service account credentials file found'
 
-log 'Configuring Google Cloud project and zone...'
+log 'Configuring Google Cloud project...'
 gcloud config set project "$PROJECT_ID"
-gcloud config set compute/zone "$ZONE"
-log "Project and zone configured: $PROJECT_ID in $ZONE"
+log "Project configured: $PROJECT_ID"
 
 log 'Authenticating with service account...'
 gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
 log 'Service account authentication successful'
 
-# Check if the TPU already exists
-if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" &> /dev/null; then
-    log "TPU '$TPU_NAME' already exists. Skipping TPU creation."
-else
-    # Create the TPU VM
-    log "Creating TPU VM with name: $TPU_NAME, type: $TPU_TYPE..."
-    gcloud compute tpus tpu-vm create "$TPU_NAME" \
-        --zone="$ZONE" \
-        --accelerator-type="$TPU_TYPE" \
-        --version="$RUNTIME_VERSION" \
-        --service-account="$SERVICE_ACCOUNT_EMAIL" \
-        --project="$PROJECT_ID"
-    log 'TPU VM creation completed'
+# Check if bucket exists
+if gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
+    log "Bucket '$BUCKET_NAME' already exists. Exiting."
+    exit 1
 fi
 
-log "TPU Setup Complete. TPU '$TPU_NAME' is ready." 
+# Extract region from zone (remove the last character)
+TPU_REGION=${ZONE%-*}
+log "Using region $TPU_REGION for bucket location to match TPU location"
+
+log "Creating GCS bucket: $BUCKET_NAME..."
+gsutil mb -p "$PROJECT_ID" -l "$TPU_REGION" "gs://$BUCKET_NAME"
+
+log "GCS bucket creation completed in region $TPU_REGION"
+log "GCS Bucket Setup Complete. Bucket '$BUCKET_NAME' is ready." 

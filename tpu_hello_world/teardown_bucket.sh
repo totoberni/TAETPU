@@ -17,14 +17,13 @@ handle_error() {
 trap 'handle_error ${LINENO} $?' ERR
 
 # --- MAIN SCRIPT ---
-log 'Starting TPU setup process...'
+log 'Starting GCS bucket teardown process...'
 
 log 'Loading environment variables...'
 source .env
 log 'Environment variables loaded successfully'
 
 log 'Setting up service account credentials...'
-# Use absolute path for reliability
 export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
 
 if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
@@ -33,28 +32,33 @@ if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
 fi
 log 'Service account credentials file found'
 
-log 'Configuring Google Cloud project and zone...'
-gcloud config set project "$PROJECT_ID"
-gcloud config set compute/zone "$ZONE"
-log "Project and zone configured: $PROJECT_ID in $ZONE"
-
 log 'Authenticating with service account...'
 gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
 log 'Service account authentication successful'
 
-# Check if the TPU already exists
-if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" &> /dev/null; then
-    log "TPU '$TPU_NAME' already exists. Skipping TPU creation."
+# Check if bucket exists
+log "Checking if bucket exists..."
+if ! gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
+    log "Bucket '$BUCKET_NAME' does not exist. Nothing to delete."
+    exit 0
+fi
+log "Bucket '$BUCKET_NAME' found"
+
+# Disable command tracing for the prompt
+set +x
+read -r -p "Do you want to delete the GCS bucket '$BUCKET_NAME'? This will PERMANENTLY DELETE all data in the bucket. (y/N): " confirm_bucket_delete
+set -x
+
+if [[ "$confirm_bucket_delete" =~ ^[Yy]$ ]]; then
+    log "Proceeding with bucket deletion..."
+    if gsutil rm -r -f "gs://$BUCKET_NAME"; then
+        log "GCS bucket '$BUCKET_NAME' deleted successfully"
+    else
+        log "ERROR: Failed to delete GCS bucket '$BUCKET_NAME'"
+        exit 1
+    fi
 else
-    # Create the TPU VM
-    log "Creating TPU VM with name: $TPU_NAME, type: $TPU_TYPE..."
-    gcloud compute tpus tpu-vm create "$TPU_NAME" \
-        --zone="$ZONE" \
-        --accelerator-type="$TPU_TYPE" \
-        --version="$RUNTIME_VERSION" \
-        --service-account="$SERVICE_ACCOUNT_EMAIL" \
-        --project="$PROJECT_ID"
-    log 'TPU VM creation completed'
+    log "Bucket deletion skipped by user"
 fi
 
-log "TPU Setup Complete. TPU '$TPU_NAME' is ready." 
+log "GCS Bucket teardown process completed successfully." 
