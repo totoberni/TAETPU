@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "infra-tempo-401122",
+  "private_key_id": "38487ce34c5c48230eabc3a6d512a8639916a05f",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDxMaaAgQxhmyu3\nX28HqGP7ZGtPiS2eyku/oHGjrTR3ABIhhvGInSHTnruTtPzdvUPU0OW0YrYKXnsQ\nGk9eh56ED777LOekURMp79x4M1eMPiEUg0Cxjs/C5wImyqfA6yC5V9cxCRPJ+3o6\nHhIHfoE7tPkhRDWFozYBGzU0ISWsigeBBAc4opr7Rwp82yaaFlxs3yPP1/++hTRV\nbibKNSmDKA/rHzNiuCtcTpn3UUx7cjwjo6rluRkYzfi9hjjoIWq5EQWa7hO/xSEh\nOO2jrIl+vBGr+IKnl8WtNJ/gB/X9zRfkQUf3/p/ZKUuGyBor4UZhB/MM50jlbA6f\nXvcvmOFfAgMBAAECggEAFAemBqTw5MgwnLVZsJ6c0vs3aC8BsV6mZL8LwOZ45WsF\nlnAw7cHy1bKobC9LEpUNpYZFlTHfYUQQXzl4HucPVHNETnKfuAcdms13FypYWmas\nc5okzLoJ6esqRBNvU/eSy6GOVt2knZD7SQlHQQUR8WXpjIgwE62Gphfe1rnr+YSB\nrWwJhJcUf2Bb5p1dJ+7lp8Htic+nAqJgc1ZoAFvo1kaIgI5uCaVszzZfVngflA6p\ntpaWKz2mEZAe1WFS4jzOLiSyUQcQrz+b3Y2EA1WvE8LyewpfbjgY4qe2UDa1R/eb\nTTV9WzlHWMMlye80mmeoio0eI1MRe/wz6lHFViMigQKBgQD8CkyibjLOS1zmye1m\nIQKG/3lXRphQYjvcsjZRoFcAuf7rNFrR4n2iwhncjmctnu18U+z6HrCotzJHx5hb\nt1b/t11Novo0PpDCuOmpeGcayGP51DMxoFRJgj06RJn33PoFn9yczbwdgX76+92b\nzRda+t70W9P+r4fQGC9IXi3ngQKBgQD0+7o+Bq/QJX2ompMTLIWcz491w8cRBQ+x\nui3SQh6jWyWUPCTxnou+1G31UiyC5qrQKyPOBOtC6Ozh4RuYZVKGJkd85x5uh7SW\nO6dFEdyjQWKMKpw1FX22UUYLarK22818HAuNtbH76H49BLISG+O40v8rf1Lkp5hg\nvyDV1vg43wKBgQDuHVzhaHMfaxvN/qAGiNE2cU5WIh/scaJUkxm2bGFGEnLAC6px\n+CTyC6cbNH5OH4QGndOZSj1kaA9cuTk8DS5oUPgZTQxNJ37kOIao0VO3ffLWKKBl\nFjALcrwdvIoqHd8oSSvICKbcyWcJ/8ISW+Tg03qoKclTKMqK0w54tGFyAQKBgQC5\n9XbK7GJ6WmsHF8Z6cHo/rOJV3zV1OuVN4Gg1yRDeqSpeWkUkz1d+lFufMzAscRHK\nEGUOVneKg6qET06WIJtCzz3Glt1nw0UWINP4vvU/SzuV8CZAuT6CrTDBK83atgBF\nrDgs6nXfJPzmLnFJA7iZLDibePugK4OkNJClIZer+wKBgQCRwgdmgGv8nPR+lx44\nXvWvGI8tWIoNnF3q4w7sMtWtlxkiRyP4pgMkSj/C/wnxGfm9oi38n++Isi6N3mXh\no1BhJoxT/t3Rg+l43p93AYLRnLxBwYrtO+AA0Vcf7mG4l88c3YE61HESCgxWJrpJ\nS8W+QoyyVTU1JDbAczeT9I0H7w==\n-----END PRIVATE KEY-----\n",
+  "client_email": "p4pj-980@infra-tempo-401122.iam.gserviceaccount.com",
+  "client_id": "110681933966742662686",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/p4pj-980%40infra-tempo-401122.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
