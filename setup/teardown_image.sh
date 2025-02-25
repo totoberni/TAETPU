@@ -20,12 +20,15 @@ trap 'handle_error ${LINENO} $?' ERR
 log 'Starting Docker image teardown process...'
 
 # Load environment variables if .env exists
-if [ -f "../source/.env" ]; then
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+ENV_FILE="$SCRIPT_DIR/../source/.env"
+
+if [ -f "$ENV_FILE" ]; then
   log 'Loading environment variables...'
-  source ../source/.env
+  source "$ENV_FILE"
   log 'Environment variables loaded successfully'
 else
-  log "ERROR: .env file not found"
+  log "ERROR: .env file not found at $ENV_FILE"
   exit 1
 fi
 
@@ -41,9 +44,9 @@ log "- Image Name: tpu-hello-world"
 log "- Image Tag: v1"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "../source/$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON" ]]; then
   log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/../source/$SERVICE_ACCOUNT_JSON"
+  export GOOGLE_APPLICATION_CREDENTIALS="$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON"
   gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
   log 'Service account authentication successful'
 fi

@@ -20,7 +20,8 @@ trap 'handle_error ${LINENO} $?' ERR
 log 'Starting verification of PyTorch/XLA on TPU...'
 
 log 'Loading environment variables...'
-source ../source/.env
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+source "$SCRIPT_DIR/../source/.env"
 log 'Environment variables loaded successfully'
 
 # Validate required environment variables
@@ -36,19 +37,93 @@ log "- TPU Zone: $TPU_ZONE"
 log "- TPU Name: $TPU_NAME"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "../source/$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON" ]]; then
   log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/../source/$SERVICE_ACCOUNT_JSON"
+  export GOOGLE_APPLICATION_CREDENTIALS="$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON"
   gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
   log 'Service account authentication successful'
 fi
 
-# Run the verification script inside the Docker container on the TPU VM
+# Copy the verify.py file to the TPU VM
+log "Copying verification script to TPU VM..."
+gcloud compute tpus tpu-vm scp "$SCRIPT_DIR/verify.py" "$TPU_NAME":/tmp/verify.py \
+    --zone="$TPU_ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all
+
+# Create a temporary script to run on the TPU VM
+TEMP_SCRIPT=$(mktemp)
+cat > "$TEMP_SCRIPT" << EOF
+#!/bin/bash
+echo "Running PyTorch/XLA verification..."
+
+# Check TPU health
+echo "Checking TPU health..."
+if ! ls -la /dev/accel* &>/dev/null; then
+  echo "ERROR: No TPU devices found at /dev/accel*"
+  echo "Please check if TPU is properly initialized"
+  exit 1
+fi
+
+# Print TPU firmware version if available
+if [ -f /sys/firmware/devicetree/base/model ]; then
+  echo "TPU model: \$(cat /sys/firmware/devicetree/base/model)"
+fi
+
+# Set debug options
+if [[ "$TPU_DEBUG" == "true" ]]; then
+  echo "Debug mode enabled - verbose logging"
+  DEBUG_OPTS="-e TF_CPP_MIN_LOG_LEVEL=0 -e XLA_FLAGS=--xla_dump_to=/tmp/xla_dump"
+else
+  DEBUG_OPTS="-e TF_CPP_MIN_LOG_LEVEL=3"
+fi
+
+# Make the verification script executable
+chmod +x /tmp/verify.py
+
+# Try normal docker run first
+echo "Trying normal docker run..."
+docker run --rm --privileged \\
+  --device=/dev/accel0 \\
+  -e PJRT_DEVICE=TPU \\
+  -e XLA_USE_BF16=1 \\
+  -e PYTHONUNBUFFERED=1 \\
+  \$DEBUG_OPTS \\
+  -v /tmp/verify.py:/app/verify.py \\
+  gcr.io/$PROJECT_ID/tpu-hello-world:v1 \\
+  python /app/verify.py
+
+# If it failed, try with sudo
+if [ \$? -ne 0 ]; then
+  echo "Trying with sudo..."
+  sudo docker run --rm --privileged \\
+    --device=/dev/accel0 \\
+    -e PJRT_DEVICE=TPU \\
+    -e XLA_USE_BF16=1 \\
+    -e PYTHONUNBUFFERED=1 \\
+    \$DEBUG_OPTS \\
+    -v /tmp/verify.py:/app/verify.py \\
+    gcr.io/$PROJECT_ID/tpu-hello-world:v1 \\
+    python /app/verify.py
+fi
+EOF
+
+# Copy the shell script to the TPU VM
+log "Copying runner script to TPU VM..."
+gcloud compute tpus tpu-vm scp "$TEMP_SCRIPT" "$TPU_NAME":/tmp/run_verification.sh \
+    --zone="$TPU_ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all
+
+# Make it executable and run it
 log "Running PyTorch/XLA verification inside Docker container on TPU VM..."
 gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
     --worker=all \
-    --command="docker run --rm gcr.io/$PROJECT_ID/tpu-hello-world:v1 python -c \"import torch; import torch_xla; import torch_xla.core.xla_model as xm; print(f'PyTorch version: {torch.__version__}'); print(f'XLA Devices: {xm.get_xla_supported_devices()}'); print('Verification complete.')\""
+    --command="chmod +x /tmp/run_verification.sh && PROJECT_ID=$PROJECT_ID TPU_DEBUG=${TPU_DEBUG:-false} /tmp/run_verification.sh"
+
+# Clean up temporary file
+rm "$TEMP_SCRIPT"
 
 log "Verification script execution complete." 

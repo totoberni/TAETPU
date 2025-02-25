@@ -20,7 +20,9 @@ trap 'handle_error ${LINENO} $?' ERR
 log 'Starting GCS bucket teardown process...'
 
 log 'Loading environment variables...'
-source ../source/.env
+# Fix the path to .env - use script directory as reference
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+source "$SCRIPT_DIR/../source/.env"
 log 'Environment variables loaded successfully'
 
 # Validate required environment variables
@@ -34,9 +36,9 @@ log "Configuration:"
 log "- Bucket Name: $BUCKET_NAME"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "../source/$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON" ]]; then
   log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/../source/$SERVICE_ACCOUNT_JSON"
+  export GOOGLE_APPLICATION_CREDENTIALS="$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON"
   gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
   log 'Service account authentication successful'
 fi
