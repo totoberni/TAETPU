@@ -17,10 +17,10 @@ handle_error() {
 trap 'handle_error ${LINENO} $?' ERR
 
 # --- MAIN SCRIPT ---
-log 'Starting TPU teardown process...'
+log 'Starting execution of PyTorch Hello World on TPU...'
 
 log 'Loading environment variables...'
-source .env
+source ../source/.env
 log 'Environment variables loaded successfully'
 
 # Validate required environment variables
@@ -38,26 +38,17 @@ log "- TPU Name: $TPU_NAME"
 # Set up authentication if provided
 if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SERVICE_ACCOUNT_JSON" ]]; then
   log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
+  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/../source/$SERVICE_ACCOUNT_JSON"
   gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
   log 'Service account authentication successful'
 fi
 
-# Check if TPU exists
-log "Checking if TPU '$TPU_NAME' exists..."
-if ! gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" &> /dev/null; then
-  log "TPU '$TPU_NAME' does not exist. Nothing to delete."
-  exit 0
-fi
+# Run the main.py script inside the Docker container on the TPU VM
+log "Running main.py inside Docker container on TPU VM..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all \
+    --command="docker run --rm gcr.io/$PROJECT_ID/tpu-hello-world:v1 python main.py"
 
-log "TPU '$TPU_NAME' found. Proceeding with deletion..."
-
-# Delete the TPU VM
-log "Deleting TPU VM '$TPU_NAME'..."
-gcloud compute tpus tpu-vm delete "$TPU_NAME" \
-  --project="$PROJECT_ID" \
-  --zone="$TPU_ZONE" \
-  --quiet
-
-log "TPU '$TPU_NAME' deletion completed successfully."
-log "TPU teardown process completed."
+log "Script execution complete."

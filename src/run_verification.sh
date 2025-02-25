@@ -17,10 +17,10 @@ handle_error() {
 trap 'handle_error ${LINENO} $?' ERR
 
 # --- MAIN SCRIPT ---
-log 'Starting execution of PyTorch Hello World on TPU...'
+log 'Starting verification of PyTorch/XLA on TPU...'
 
 log 'Loading environment variables...'
-source .env
+source ../source/.env
 log 'Environment variables loaded successfully'
 
 # Validate required environment variables
@@ -36,33 +36,19 @@ log "- TPU Zone: $TPU_ZONE"
 log "- TPU Name: $TPU_NAME"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "../source/$SERVICE_ACCOUNT_JSON" ]]; then
   log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
+  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/../source/$SERVICE_ACCOUNT_JSON"
   gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
   log 'Service account authentication successful'
 fi
 
-# Copy the main.py file to the TPU VM
-log "Copying main.py to TPU VM..."
-gcloud compute tpus tpu-vm scp main.py "$TPU_NAME": \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID"
-log "main.py copied successfully"
-
-# Run the main.py script on the TPU VM with proper environment variables
-log "Running main.py on TPU VM..."
+# Run the verification script inside the Docker container on the TPU VM
+log "Running PyTorch/XLA verification inside Docker container on TPU VM..."
 gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
-    --command="
-      export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:\$HOME/.local/lib/ 
-      export PJRT_DEVICE=TPU 
-      export PT_XLA_DEBUG=0 
-      export USE_TORCH=ON 
-      # Uncomment the following line if needed for specific workloads
-      # unset LD_PRELOAD 
-      python3 main.py
-    "
+    --worker=all \
+    --command="docker run --rm gcr.io/$PROJECT_ID/tpu-hello-world:v1 python -c \"import torch; import torch_xla; import torch_xla.core.xla_model as xm; print(f'PyTorch version: {torch.__version__}'); print(f'XLA Devices: {xm.get_xla_supported_devices()}'); print('Verification complete.')\""
 
-log "Script execution complete."
+log "Verification script execution complete." 

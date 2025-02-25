@@ -7,7 +7,7 @@ log() {
 
 # Load environment variables
 log "Loading environment variables..."
-source .env
+source ../source/.env
 
 # Validate required environment variables
 if [[ -z "$PROJECT_ID" || -z "$TPU_REGION" || -z "$TPU_TYPE" ]]; then
@@ -22,10 +22,10 @@ log "- TPU Region: $TPU_REGION"
 log "- TPU Type: $TPU_TYPE"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "../source/$SERVICE_ACCOUNT_JSON" ]]; then
     log "Authenticating with service account..."
-    export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
-    gcloud auth activate-service-account --key-file="$SERVICE_ACCOUNT_JSON"
+    export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/../source/$SERVICE_ACCOUNT_JSON"
+    gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
     log "Service account authentication successful"
 fi
 
@@ -108,21 +108,15 @@ done
 # Update .env file directly with the found zone
 if [[ -n "$FOUND_ZONE" ]]; then
     log "Successfully found matching zone: $FOUND_ZONE"
-    
-    # Create a backup of the .env file
-    cp .env .env.bak
-    
     # Update TPU_ZONE in the .env file
     if [[ "$(uname)" == "Darwin" ]]; then
         # macOS requires an empty string for -i
-        sed -i '' "s/^TPU_ZONE=.*$/TPU_ZONE=$FOUND_ZONE/" .env
+        sed -i '' "s/^TPU_ZONE=.*$/TPU_ZONE=$FOUND_ZONE/" ../source/.env
     else
         # Linux/Windows doesn't need an empty string
-        sed -i "s/^TPU_ZONE=.*$/TPU_ZONE=$FOUND_ZONE/" .env
+        sed -i "s/^TPU_ZONE=.*$/TPU_ZONE=$FOUND_ZONE/" ../source/.env
     fi
-    
     log "Updated .env file with TPU_ZONE=$FOUND_ZONE"
-    log "A backup of your original .env file was created at .env.bak"
 else
     log "ERROR: TPU type '$TPU_TYPE' not found in any zone in region '$TPU_REGION'"
     log "Please check if the TPU type is correct and available in the region."

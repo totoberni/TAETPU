@@ -1,6 +1,6 @@
 # Google Cloud TPU PyTorch Hello World
 
-This repository contains a complete setup for running PyTorch on Google Cloud TPU VMs. It demonstrates how to set up a TPU VM, install PyTorch with XLA support, and run a simple test script that validates TPU functionality.
+This repository contains a complete setup for running PyTorch on Google Cloud TPU VMs using Docker. It demonstrates how to set up a TPU VM, build and deploy a Docker container with PyTorch/XLA support, and run a simple test script that validates TPU functionality.
 
 ## Project Structure
 ```
@@ -8,31 +8,47 @@ This repository contains a complete setup for running PyTorch on Google Cloud TP
 ├── .gitattributes          # Git attributes configuration
 ├── .gitignore              # Git ignore configuration
 ├── README.md               # Project documentation
-└── tpu_hello_world/
+├── setup/                  # Setup and teardown scripts
+│   ├── check_zones.sh      # Script to find available TPU zones
+│   ├── setup_bucket.sh     # Script to create GCS bucket
+│   ├── setup_image.sh      # Script to build and push Docker image to GCR
+│   ├── setup_tpu.sh        # Script to create TPU VM and pull Docker image
+│   ├── teardown_bucket.sh  # Script to delete GCS bucket
+│   ├── teardown_image.sh   # Script to clean up Docker images locally and in GCR
+│   ├── teardown_tpu.sh     # Script to delete TPU VM
+│   └── docker/             # Docker configuration
+│       ├── Dockerfile      # Docker image definition
+│       ├── requirements.txt # Python dependencies
+│       └── verify_torch.sh # Script to verify PyTorch/XLA installation
+├── src/                    # Source code and execution scripts
+│   ├── main.py             # Main Python script for TPU execution
+│   ├── run_main.sh         # Script to run main.py on TPU inside Docker
+│   └── run_verification.sh # Script to verify PyTorch/XLA on TPU
+└── source/                 # Configuration and credential files
     ├── .env                # Environment variables and configuration
-    ├── main.py             # Main Python script for TPU execution
-    ├── check_zones.sh      # Script to find available TPU zones
-    ├── run_main.sh         # Script to run main.py on TPU
-    ├── setup_bucket.sh     # Script to create GCS bucket
-    ├── setup_tpu.sh        # Script to create TPU VM and install PyTorch
-    ├── teardown_bucket.sh  # Script to delete GCS bucket
-    └── teardown_tpu.sh     # Script to delete TPU VM
+    └── infra-tempo-401122-38487ce34c5c.json  # Service account key
 ```
 
 ## File Descriptions
 
-- `.env`: Contains all configuration variables including project ID, TPU specifications, and service account details
-- `main.py`: PyTorch script that verifies TPU connectivity and performs basic tensor operations
-- `check_zones.sh`: Finds available TPU zones in your configured region and updates the .env file automatically
-- `run_main.sh`: Handles the deployment and execution of main.py on the TPU VM with proper environment variables
-- `setup_bucket.sh`: Creates a Google Cloud Storage bucket for TPU-related storage
-- `setup_tpu.sh`: Provisions and configures the TPU VM, including PyTorch installation with the latest dependencies
-- `teardown_bucket.sh`: Safely deletes the GCS bucket and its contents
-- `teardown_tpu.sh`: Deletes the TPU VM instance
+- `source/.env`: Contains all configuration variables including project ID, TPU specifications, and service account details
+- `src/main.py`: PyTorch script that verifies TPU connectivity and performs basic tensor operations
+- `src/run_main.sh`: Handles the execution of main.py inside a Docker container on the TPU VM
+- `src/run_verification.sh`: Verifies PyTorch/XLA installation and TPU connectivity inside the Docker container
+- `setup/check_zones.sh`: Finds available TPU zones in your configured region and updates the .env file automatically
+- `setup/setup_bucket.sh`: Creates a Google Cloud Storage bucket for TPU-related storage
+- `setup/setup_image.sh`: Builds the Docker image locally and pushes it to Google Container Registry
+- `setup/setup_tpu.sh`: Provisions a TPU VM and pulls the Docker image
+- `setup/teardown_bucket.sh`: Safely deletes the GCS bucket and its contents
+- `setup/teardown_image.sh`: Removes Docker images both locally and from Google Container Registry
+- `setup/teardown_tpu.sh`: Deletes the TPU VM instance
+- `setup/docker/Dockerfile`: Defines the Docker image with PyTorch and XLA support
+- `setup/docker/requirements.txt`: Lists the Python packages to be installed in the Docker image
+- `setup/docker/verify_torch.sh`: Script to verify PyTorch and XLA installation in the container
 
 ## Configuration
 
-Before running the scripts, update the `.env` file with your specific settings:
+Before running the scripts, update the `source/.env` file with your specific settings:
 
 ```bash
 # Project Configuration
@@ -42,7 +58,7 @@ TPU_ZONE=europe-west4-a
 BUCKET_REGION=europe-west4
 TPU_NAME=your-tpu-name
 TPU_TYPE=v2-8
-TPU_RUNTIME_VERSION=tpu-vm-tf-2.15.0
+# Note: The TPU runtime version is now fixed to tpu-ubuntu2204-base in the setup script
 
 # Cloud Storage
 BUCKET_NAME=your-bucket-name
@@ -58,138 +74,153 @@ INSTALL_PYTORCH=true
 # LIBTPU_INIT_ARGS=--xla_jf_conv_full_precision=true
 ```
 
-## Setup and Workflow
+## Complete Workflow for TPU Setup and Execution
+
+Follow these steps in order to set up your TPU environment and run the PyTorch example:
 
 ### 1. Preparation
 
 Make all scripts executable:
 ```bash
-chmod +x tpu_hello_world/*.sh
+chmod +x setup/*.sh
+chmod +x setup/docker/*.sh
+chmod +x src/*.sh
 ```
 
-### 2. Find Available TPU Zone
+### 2. Check for Available TPU Zones
 
-The first step is to find a zone where your desired TPU type is available:
+First, find a zone where your desired TPU type is available:
 
 ```bash
-# Change to the tpu_hello_world directory
-cd tpu_hello_world
-
 # Run the zone checker
-./check_zones.sh
+./setup/check_zones.sh
 ```
 
-This will automatically update your `.env` file with the correct `TPU_ZONE` value.
+This script will:
+- Check all zones in your configured TPU_REGION
+- Search for availability of your specified TPU_TYPE
+- Automatically update your .env file with the correct TPU_ZONE
 
-### 3. Set Up Google Cloud Storage
+### 3. Set Up Google Cloud Storage Bucket
 
 Create a bucket for storing TPU-related files:
 
 ```bash
-./setup_bucket.sh
+./setup/setup_bucket.sh
 ```
 
-### 4. Set Up TPU VM
+This step is optional but recommended for storing model checkpoints, data, and logs.
 
-Create and configure the TPU VM, including PyTorch installation:
+### 4. Build and Push the Docker Image
+
+Build your Docker image and push it to Google Container Registry:
 
 ```bash
-./setup_tpu.sh
+./setup/setup_image.sh
 ```
 
-### 5. Run the Hello World Example
+This script will:
+- Build the Docker image locally with tag `tpu-hello-world:v1`
+- Configure Docker to authenticate with Google Container Registry
+- Tag the image for GCR as `gcr.io/[YOUR-PROJECT-ID]/tpu-hello-world:v1`
+- Push the image to GCR
 
-Execute the PyTorch script on the TPU VM:
+### 5. Set Up TPU VM and Pull Docker Image
+
+Create the TPU VM and pull the Docker image:
 
 ```bash
-./run_main.sh
+./setup/setup_tpu.sh
 ```
 
-### 6. Clean Up Resources
+This script will:
+- Create a TPU VM using the `tpu-ubuntu2204-base` image
+- Pull your Docker image from Google Container Registry onto the TPU VM
 
-When you're done:
+### 6. Verify PyTorch/XLA Installation
+
+Verify that PyTorch and XLA are properly installed and can access the TPU:
+
+```bash
+./src/run_verification.sh
+```
+
+This important verification step ensures:
+- PyTorch is correctly installed
+- PyTorch/XLA can detect and access TPU devices
+- The Docker container is working as expected
+
+### 7. Run the Hello World Example
+
+Execute the PyTorch script inside the Docker container on the TPU VM:
+
+```bash
+./src/run_main.sh
+```
+
+This script runs the main.py PyTorch example to demonstrate basic TPU operations.
+
+### 8. Clean Up Resources When Finished
+
+When you're done, clean up resources in this order:
 
 ```bash
 # Delete the TPU VM
-./teardown_tpu.sh
+./setup/teardown_tpu.sh
+
+# Delete the Docker images (local and GCR)
+./setup/teardown_image.sh
 
 # Delete the GCS bucket (will prompt for confirmation)
-./teardown_bucket.sh
+./setup/teardown_bucket.sh
 ```
-
-## Prerequisites
-
-- Google Cloud SDK installed and configured
-- Service account with necessary permissions:
-  - Compute Admin
-  - Storage Admin
-  - Service Account User
-- Python 3.7 or higher
-- Google Cloud project with TPU API enabled
-
-## Environment Variables
-
-When running PyTorch code on the TPU VM, the following environment variables are automatically set:
-
-```bash
-# Added to LD_LIBRARY_PATH to ensure TPU libraries are properly found
-LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.local/lib/
-
-# Specifies that we're using a TPU device
-PJRT_DEVICE=TPU
-
-# Disables debug mode for better performance
-PT_XLA_DEBUG=0
-
-# Enables PyTorch XLA integration
-USE_TORCH=ON
-
-# Optional: For workloads with very large allocations where tcmalloc might cause slowdowns
-# unset LD_PRELOAD
-```
-
-## PyTorch TPU Installation
-
-The setup script installs the following components:
-
-- System dependencies: `libopenblas-dev`, `libomp5`
-- Python dependencies: `mkl`, `mkl-include`, `numpy`
-- PyTorch with XLA support: `torch`, `torch_xla[tpu]~=2.5.0`
-
-The installation includes a workaround for setuptools version issues that can occur during installation.
-
-## Error Handling
-
-All scripts include:
-- Timestamp-based logging
-- Error trapping and reporting
-- Resource existence checking
-- Proper cleanup on failure
-- Environment variable validation
 
 ## Troubleshooting
 
 Common issues and solutions:
 
-1. **TPU Creation Fails**
+1. **Docker Image Build Fails**
+   - Check your Docker Desktop is running
+   - Ensure you have internet access for downloading packages
+   - Verify that you're building from the project root directory
+   - Run `./teardown_image.sh` to clean up and try again
+
+2. **Docker Image Push Fails**
+   - Check that you've run `gcloud auth configure-docker`
+   - Verify you have proper permissions to your Google Cloud project
+   - Ensure your project has Container Registry API enabled
+
+3. **TPU Creation Fails**
    - Verify quota availability in your region
    - Check if the TPU type is available in selected zone (use `check_zones.sh`)
    - Ensure TPU API is enabled
 
-2. **PyTorch Installation Issues**
-   - If you encounter `InvalidRequirement` errors, the setup script will automatically downgrade setuptools
-   - Verify internet connectivity on TPU VM
-   - Check compatibility between PyTorch and TPU runtime versions
-   - Ensure sufficient disk space
+4. **Verification Script Fails**
+   - Check that the Docker image was successfully pulled to the TPU VM
+   - Verify the TPU VM has internet access
+   - Ensure the PyTorch/XLA version is compatible with your TPU type
+   - Check for any error messages indicating missing dependencies
 
-3. **Authentication Errors**
+5. **Main Script Fails**
+   - Look for Python errors in the output
+   - Verify the Docker container has the required environment variables set
+   - Check that tensor operations are properly configured for TPU
+
+6. **Authentication Errors**
    - Verify service account JSON file path
    - Check service account permissions
    - Ensure Google Cloud SDK is properly configured
 
-4. **Performance Issues**
-   - For models with large allocations, try uncommenting the `unset LD_PRELOAD` line in `run_main.sh`
-   - Check TPU utilization with the Cloud Monitoring dashboard
+## System Requirements
+
+- Docker Desktop installed and running
+- Google Cloud SDK installed and configured
+- Service account with necessary permissions:
+  - Compute Admin
+  - Storage Admin
+  - Service Account User
+  - Container Registry access
+- Google Cloud project with TPU API enabled
 
 ## Security Notes
 
@@ -204,3 +235,6 @@ For more information, refer to:
 - [Google Cloud TPU Documentation](https://cloud.google.com/tpu/docs)
 - [PyTorch XLA Documentation](https://pytorch.org/xla/)
 - [TPU Performance Guide](https://cloud.google.com/tpu/docs/performance-guide)
+- [TPU VM Documentation](https://cloud.google.com/tpu/docs/run-calculation-pytorch)
+- [Docker Documentation](https://docs.docker.com/)
+- [Google Container Registry Documentation](https://cloud.google.com/container-registry/docs)
