@@ -23,36 +23,38 @@ log 'Loading environment variables...'
 source .env
 log 'Environment variables loaded successfully'
 
-log 'Setting up service account credentials...'
-# Use absolute path
-export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
-
-if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-    log "ERROR: Service account credentials file not found at: $GOOGLE_APPLICATION_CREDENTIALS"
-    exit 1
+# Validate required environment variables
+if [[ -z "$PROJECT_ID" || -z "$BUCKET_NAME" || -z "$BUCKET_REGION" ]]; then
+  log "ERROR: Required environment variables are missing"
+  log "Ensure PROJECT_ID, BUCKET_NAME, and BUCKET_REGION are set in .env"
+  exit 1
 fi
-log 'Service account credentials file found'
 
-log 'Configuring Google Cloud project...'
-gcloud config set project "$PROJECT_ID"
-log "Project configured: $PROJECT_ID"
+log "Configuration:"
+log "- Project ID: $PROJECT_ID"
+log "- Bucket Name: $BUCKET_NAME"
+log "- Region: $BUCKET_REGION"
 
-log 'Authenticating with service account...'
-gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-log 'Service account authentication successful'
+# Set up authentication if provided
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SERVICE_ACCOUNT_JSON" ]]; then
+  log 'Setting up service account credentials...'
+  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
+  gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+  log 'Service account authentication successful'
+fi
 
 # Check if bucket exists
-if gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
-    log "Bucket '$BUCKET_NAME' already exists. Exiting."
-    exit 1
+if gcloud storage buckets describe "gs://$BUCKET_NAME" &> /dev/null; then
+    log "Bucket 'gs://$BUCKET_NAME' already exists. Exiting."
+    exit 0
 fi
 
-# Extract region from zone (remove the last character)
-TPU_REGION=${ZONE%-*}
-log "Using region $TPU_REGION for bucket location to match TPU location"
+# Create the bucket with specified settings
+log "Creating GCS bucket: gs://$BUCKET_NAME..."
+gcloud storage buckets create "gs://$BUCKET_NAME" \
+    --location="$BUCKET_REGION" \
+    --default-storage-class="STANDARD" \
+    --uniform-bucket-level-access
 
-log "Creating GCS bucket: $BUCKET_NAME..."
-gsutil mb -p "$PROJECT_ID" -l "$TPU_REGION" "gs://$BUCKET_NAME"
-
-log "GCS bucket creation completed in region $TPU_REGION"
-log "GCS Bucket Setup Complete. Bucket '$BUCKET_NAME' is ready." 
+log "GCS bucket creation completed in region $BUCKET_REGION"
+log "GCS Bucket Setup Complete. Bucket 'gs://$BUCKET_NAME' is ready."

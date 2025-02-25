@@ -23,42 +23,47 @@ log 'Loading environment variables...'
 source .env
 log 'Environment variables loaded successfully'
 
-log 'Setting up service account credentials...'
-export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
-
-if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-    log "ERROR: Service account credentials file not found at: $GOOGLE_APPLICATION_CREDENTIALS"
-    exit 1
+# Validate required environment variables
+if [[ -z "$BUCKET_NAME" ]]; then
+  log "ERROR: Required environment variable BUCKET_NAME is missing"
+  log "Ensure BUCKET_NAME is set in .env"
+  exit 1
 fi
-log 'Service account credentials file found'
 
-log 'Authenticating with service account...'
-gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-log 'Service account authentication successful'
+log "Configuration:"
+log "- Bucket Name: $BUCKET_NAME"
+
+# Set up authentication if provided
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SERVICE_ACCOUNT_JSON" ]]; then
+  log 'Setting up service account credentials...'
+  export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/$SERVICE_ACCOUNT_JSON"
+  gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+  log 'Service account authentication successful'
+fi
 
 # Check if bucket exists
 log "Checking if bucket exists..."
-if ! gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
-    log "Bucket '$BUCKET_NAME' does not exist. Nothing to delete."
+if ! gcloud storage buckets describe "gs://$BUCKET_NAME" &> /dev/null; then
+    log "Bucket 'gs://$BUCKET_NAME' does not exist. Nothing to delete."
     exit 0
 fi
-log "Bucket '$BUCKET_NAME' found"
+log "Bucket 'gs://$BUCKET_NAME' found"
 
-# Disable command tracing for the prompt
-set +x
-read -r -p "Do you want to delete the GCS bucket '$BUCKET_NAME'? This will PERMANENTLY DELETE all data in the bucket. (y/N): " confirm_bucket_delete
-set -x
+# Show bucket contents before asking for confirmation
+log "Listing bucket contents before deletion:"
+gcloud storage ls -l "gs://$BUCKET_NAME" 2>/dev/null || echo "Bucket is empty"
 
-if [[ "$confirm_bucket_delete" =~ ^[Yy]$ ]]; then
-    log "Proceeding with bucket deletion..."
-    if gsutil rm -r -f "gs://$BUCKET_NAME"; then
-        log "GCS bucket '$BUCKET_NAME' deleted successfully"
-    else
-        log "ERROR: Failed to delete GCS bucket '$BUCKET_NAME'"
-        exit 1
-    fi
-else
-    log "Bucket deletion skipped by user"
+# Prompt for user confirmation
+read -p "This will PERMANENTLY DELETE bucket 'gs://$BUCKET_NAME' and ALL its contents. This action CANNOT be undone. Type 'yes' to confirm: " confirm
+
+if [[ "$confirm" != "yes" ]]; then
+    log "Deletion cancelled by user. Exiting."
+    exit 0
 fi
 
-log "GCS Bucket teardown process completed successfully." 
+# Delete the bucket and all its contents
+log "Proceeding with bucket deletion..."
+gcloud storage rm --recursive "gs://$BUCKET_NAME"
+
+log "GCS bucket 'gs://$BUCKET_NAME' and all its contents have been deleted successfully."
+log "GCS Bucket teardown process completed."
