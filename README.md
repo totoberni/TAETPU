@@ -1,4 +1,4 @@
-# Transformer Ablation EXperiment on Google Cloud TPU with PyTorch 
+# Transformer Ablation Experiment on Google Cloud TPU (with PyTorch) 
 
 This repository contains a complete setup for running PyTorch on Google Cloud TPU VMs using Docker. It demonstrates how to set up a TPU VM, build and deploy a Docker container with PyTorch/XLA support, and run a simple test script that validates TPU functionality.
 
