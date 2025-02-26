@@ -8,30 +8,18 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 # --- MAIN SCRIPT ---
-log "Loading environment variables..."
-# Load from the absolute path
+init_script "TPU zone availability check"
 ENV_FILE="$PROJECT_DIR/source/.env"
-source "$ENV_FILE"
+load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-if [[ -z "$PROJECT_ID" || -z "$TPU_REGION" || -z "$TPU_TYPE" ]]; then
-    log_error "Required environment variables are missing."
-    log_error "Ensure PROJECT_ID, TPU_REGION, and TPU_TYPE are set in .env file."
-    exit 1
-fi
+check_env_vars "PROJECT_ID" "TPU_REGION" "TPU_TYPE" || exit 1
 
-log "Configuration:"
-log "- Project ID: $PROJECT_ID"
-log "- TPU Region: $TPU_REGION"
-log "- TPU Type: $TPU_TYPE"
+# Display configuration
+display_config "PROJECT_ID" "TPU_REGION" "TPU_TYPE"
 
-# Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
-    log "Authenticating with service account..."
-    export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
-    gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-    log_success "Service account authentication successful"
-fi
+# Set up authentication
+setup_auth
 
 # Get all zones in the region (with proper trimming)
 log "Fetching available TPU zones in region '$TPU_REGION'..."
@@ -113,7 +101,6 @@ done
 if [[ -n "$FOUND_ZONE" ]]; then
     log "Successfully found matching zone: $FOUND_ZONE"
     # Update TPU_ZONE in the .env file
-    ENV_FILE="$SCRIPT_DIR/../../source/.env"
     
     # Check if .env file is writable
     if [[ ! -w "$ENV_FILE" ]]; then

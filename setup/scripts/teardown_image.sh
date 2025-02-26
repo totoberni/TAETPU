@@ -8,38 +8,26 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 # --- MAIN SCRIPT ---
-log 'Starting Docker image teardown process...'
-
-# Load environment variables if .env exists
+init_script 'Docker image teardown'
 ENV_FILE="$PROJECT_DIR/source/.env"
 
 if [ -f "$ENV_FILE" ]; then
-  log 'Loading environment variables...'
-  source "$ENV_FILE"
-  log_success 'Environment variables loaded successfully'
+  load_env_vars "$ENV_FILE"
 else
   log_error "ERROR: .env file not found at $ENV_FILE"
   exit 1
 fi
 
 # Validate required environment variables
-if [[ -z "$PROJECT_ID" ]]; then
-  log_error "PROJECT_ID environment variable is not set"
-  exit 1
-fi
+check_env_vars "PROJECT_ID" || exit 1
 
-log "Configuration:"
-log "- Project ID: $PROJECT_ID"
+# Display configuration 
+display_config "PROJECT_ID"
 log "- Image Name: tpu-hello-world"
 log "- Image Tag: v1"
 
-# Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
-  log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
-  gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-  log_success 'Service account authentication successful'
-fi
+# Set up authentication
+setup_auth
 
 # Check Docker is installed for local cleanup
 if command -v docker &> /dev/null; then

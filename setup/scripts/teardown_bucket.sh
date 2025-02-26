@@ -8,31 +8,18 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 # --- MAIN SCRIPT ---
-log 'Starting GCS bucket teardown process...'
-
-log 'Loading environment variables...'
-# Load from the absolute path
+init_script 'GCS bucket teardown'
 ENV_FILE="$PROJECT_DIR/source/.env"
-source "$ENV_FILE"
-log_success 'Environment variables loaded successfully'
+load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-if [[ -z "$BUCKET_NAME" ]]; then
-  log_error "Required environment variable BUCKET_NAME is missing"
-  log_error "Ensure BUCKET_NAME is set in .env"
-  exit 1
-fi
+check_env_vars "BUCKET_NAME" || exit 1
 
-log "Configuration:"
-log "- Bucket Name: $BUCKET_NAME"
+# Display configuration
+display_config "BUCKET_NAME"
 
-# Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
-  log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
-  gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-  log_success 'Service account authentication successful'
-fi
+# Set up authentication
+setup_auth
 
 # Check if bucket exists
 log "Checking if bucket exists..."

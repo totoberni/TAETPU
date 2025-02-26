@@ -32,6 +32,36 @@ handle_error() {
 # Set up default error trapping - can be overridden in specific scripts
 trap 'handle_error ${LINENO} $?' ERR
 
+# --- SCRIPT INITIALIZATION ---
+# Initialize paths and environment for setup scripts
+function init_script() {
+  local script_name="${1:-Script}"
+  # Set paths if not already defined by the calling script
+  if [[ -z "$SCRIPT_DIR" || -z "$PROJECT_DIR" ]]; then
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[1]}" )" &> /dev/null && pwd )"
+    PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  fi
+  
+  log "Starting $script_name process..."
+  return 0
+}
+
+# --- ENVIRONMENT MANAGEMENT ---
+# Load environment variables from .env file
+function load_env_vars() {
+  local env_file="${1:-$PROJECT_DIR/source/.env}"
+  
+  log 'Loading environment variables...'
+  if [[ -f "$env_file" ]]; then
+    source "$env_file"
+    log_success 'Environment variables loaded successfully'
+    return 0
+  else
+    log_error "ERROR: .env file not found at $env_file"
+    return 1
+  fi
+}
+
 # --- UTILITIES ---
 function check_env_vars() {
   local required_vars=("$@")
@@ -50,6 +80,18 @@ function check_env_vars() {
   fi
   
   return 0
+}
+
+# Display script configuration based on specified variables
+function display_config() {
+  log "Configuration:"
+  for var in "$@"; do
+    if [[ -n "${!var}" ]]; then
+      log "- $var: ${!var}"
+    else
+      log "- $var: [not set]"
+    fi
+  done
 }
 
 function setup_auth() {

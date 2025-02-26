@@ -8,33 +8,18 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 # --- MAIN SCRIPT ---
-log 'Starting GCS bucket setup process...'
-
-log 'Loading environment variables...'
-# Load from the absolute path
+init_script 'GCS bucket setup'
 ENV_FILE="$PROJECT_DIR/source/.env"
-source "$ENV_FILE"
-log_success 'Environment variables loaded successfully'
+load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-if [[ -z "$PROJECT_ID" || -z "$BUCKET_NAME" || -z "$BUCKET_REGION" ]]; then
-  log_error "Required environment variables are missing"
-  log_error "Ensure PROJECT_ID, BUCKET_NAME, and BUCKET_REGION are set in .env"
-  exit 1
-fi
+check_env_vars "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION" || exit 1
 
-log "Configuration:"
-log "- Project ID: $PROJECT_ID"
-log "- Bucket Name: $BUCKET_NAME"
-log "- Region: $BUCKET_REGION"
+# Display configuration
+display_config "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION"
 
-# Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
-  log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
-  gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-  log_success 'Service account authentication successful'
-fi
+# Set up authentication
+setup_auth
 
 # Check if bucket exists
 if gcloud storage buckets describe "gs://$BUCKET_NAME" &> /dev/null; then
