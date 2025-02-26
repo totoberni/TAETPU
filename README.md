@@ -220,19 +220,6 @@ When you're done, clean up resources in this order:
   - Container Registry access
 - Google Cloud project with TPU API enabled
 
-## Contributing
-
-If you're interested in contributing to this project, please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add your changes
-4. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Acknowledgments
 
 - Google Cloud TPU team for their documentation and support
