@@ -17,7 +17,7 @@ handle_error() {
 trap 'handle_error ${LINENO} $?' ERR
 
 # --- MAIN SCRIPT ---
-log 'Starting verification of PyTorch/XLA on TPU...'
+log 'Starting comprehensive TPU verification...'
 
 log 'Loading environment variables...'
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -44,6 +44,16 @@ if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_J
   log 'Service account authentication successful'
 fi
 
+# Define a variable for a development directory to mount
+DEVELOPMENT_DIR="${SCRIPT_DIR}/../development"
+
+# Create the development directory if it doesn't exist
+if [[ ! -d "$DEVELOPMENT_DIR" ]]; then
+  log "Creating development directory for code mounting..."
+  mkdir -p "$DEVELOPMENT_DIR"
+  log "Created $DEVELOPMENT_DIR"
+fi
+
 # Copy the verify.py file to the TPU VM
 log "Copying verification script to TPU VM..."
 gcloud compute tpus tpu-vm scp "$SCRIPT_DIR/verify.py" "$TPU_NAME":/tmp/verify.py \
@@ -55,7 +65,7 @@ gcloud compute tpus tpu-vm scp "$SCRIPT_DIR/verify.py" "$TPU_NAME":/tmp/verify.p
 TEMP_SCRIPT=$(mktemp)
 cat > "$TEMP_SCRIPT" << EOF
 #!/bin/bash
-echo "Running PyTorch/XLA verification..."
+echo "Running comprehensive TPU verification..."
 
 # Check TPU health
 echo "Checking TPU health..."
@@ -81,6 +91,9 @@ fi
 # Make the verification script executable
 chmod +x /tmp/verify.py
 
+# Create mount directory if it doesn't exist
+mkdir -p /tmp/development
+
 # Try normal docker run first
 echo "Trying normal docker run..."
 docker run --rm --privileged \\
@@ -90,8 +103,9 @@ docker run --rm --privileged \\
   -e PYTHONUNBUFFERED=1 \\
   \$DEBUG_OPTS \\
   -v /tmp/verify.py:/app/verify.py \\
+  -v /tmp/development:/app/development \\
   gcr.io/$PROJECT_ID/tpu-hello-world:v1 \\
-  python /app/verify.py
+  python /app/verify.py all
 
 # If it failed, try with sudo
 if [ \$? -ne 0 ]; then
@@ -103,8 +117,9 @@ if [ \$? -ne 0 ]; then
     -e PYTHONUNBUFFERED=1 \\
     \$DEBUG_OPTS \\
     -v /tmp/verify.py:/app/verify.py \\
+    -v /tmp/development:/app/development \\
     gcr.io/$PROJECT_ID/tpu-hello-world:v1 \\
-    python /app/verify.py
+    python /app/verify.py all
 fi
 EOF
 
@@ -115,8 +130,16 @@ gcloud compute tpus tpu-vm scp "$TEMP_SCRIPT" "$TPU_NAME":/tmp/run_verification.
     --project="$PROJECT_ID" \
     --worker=all
 
+# Create a directory for development files on the TPU VM
+log "Setting up development directory for code mounting..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all \
+    --command="mkdir -p /tmp/development"
+
 # Make it executable and run it
-log "Running PyTorch/XLA verification inside Docker container on TPU VM..."
+log "Running verification tests inside Docker container on TPU VM..."
 gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
@@ -126,4 +149,4 @@ gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
 # Clean up temporary file
 rm "$TEMP_SCRIPT"
 
-log "Verification script execution complete." 
+log "All verification tests complete." 
