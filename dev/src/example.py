@@ -31,8 +31,16 @@ def mounted_example():
         b = a * 2
         c = a + b
         
-        print("\nTensor operations successful:")
+        print("\nTensor operations successful:\n")
+        print("===============EXTRA TEST===============")
         print(f"c = a + b = \n{c}")
+        print(f"c.shape: {c.shape}")
+        print(f"c.device: {c.device}")
+        print(f"c.dtype: {c.dtype}")
+        print(f"c.requires_grad: {c.requires_grad}")
+        print(f"c.grad: {c.grad}")
+        print(f"c.grad_fn: {c.grad_fn}")
+        print("===============EXTRA TEST===============")
         print("\nMounted code execution successful!")
         
     except ImportError:

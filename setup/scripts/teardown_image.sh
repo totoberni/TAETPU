@@ -1,40 +1,30 @@
 #!/bin/bash
 
-# --- HELPER FUNCTIONS ---
-log() {
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$timestamp] $1"
-}
+# --- Get script directory for absolute path references ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-handle_error() {
-  local line_no=$1
-  local error_code=$2
-  log "ERROR: Command failed at line $line_no with exit code $error_code"
-  exit $error_code
-}
-
-# Set up error trapping
-trap 'handle_error ${LINENO} $?' ERR
+# --- Import common functions ---
+source "$SCRIPT_DIR/common.sh"
 
 # --- MAIN SCRIPT ---
 log 'Starting Docker image teardown process...'
 
 # Load environment variables if .env exists
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-ENV_FILE="$SCRIPT_DIR/../source/.env"
+ENV_FILE="$PROJECT_DIR/source/.env"
 
 if [ -f "$ENV_FILE" ]; then
   log 'Loading environment variables...'
   source "$ENV_FILE"
-  log 'Environment variables loaded successfully'
+  log_success 'Environment variables loaded successfully'
 else
-  log "ERROR: .env file not found at $ENV_FILE"
+  log_error "ERROR: .env file not found at $ENV_FILE"
   exit 1
 fi
 
 # Validate required environment variables
 if [[ -z "$PROJECT_ID" ]]; then
-  log "ERROR: PROJECT_ID environment variable is not set"
+  log_error "PROJECT_ID environment variable is not set"
   exit 1
 fi
 
@@ -44,11 +34,11 @@ log "- Image Name: tpu-hello-world"
 log "- Image Tag: v1"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
   log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON"
+  export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
   gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-  log 'Service account authentication successful'
+  log_success 'Service account authentication successful'
 fi
 
 # Check Docker is installed for local cleanup
@@ -58,9 +48,9 @@ if command -v docker &> /dev/null; then
   if docker image inspect tpu-hello-world:v1 &> /dev/null; then
     log "Removing local Docker image..."
     if docker rmi tpu-hello-world:v1 -f; then
-      log "Local Docker image removed successfully"
+      log_success "Local Docker image removed successfully"
     else
-      log "WARNING: Failed to remove local Docker image"
+      log_warning "Failed to remove local Docker image"
     fi
   else
     log "Local Docker image not found. Skipping local cleanup."
@@ -70,15 +60,15 @@ if command -v docker &> /dev/null; then
   if docker image inspect gcr.io/${PROJECT_ID}/tpu-hello-world:v1 &> /dev/null; then
     log "Removing local GCR-tagged Docker image..."
     if docker rmi gcr.io/${PROJECT_ID}/tpu-hello-world:v1 -f; then
-      log "Local GCR-tagged Docker image removed successfully"
+      log_success "Local GCR-tagged Docker image removed successfully"
     else
-      log "WARNING: Failed to remove local GCR-tagged Docker image"
+      log_warning "Failed to remove local GCR-tagged Docker image"
     fi
   else
     log "Local GCR-tagged Docker image not found. Skipping."
   fi
 else
-  log "Docker not found. Skipping local image cleanup."
+  log_warning "Docker not found. Skipping local image cleanup."
 fi
 
 # Clean up Google Container Registry image
@@ -90,9 +80,9 @@ if gcloud container images describe gcr.io/${PROJECT_ID}/tpu-hello-world:v1 &> /
   read -p "This will DELETE the Docker image from GCR. Continue? (y/n): " -r
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     if gcloud container images delete gcr.io/${PROJECT_ID}/tpu-hello-world:v1 --force-delete-tags --quiet; then
-      log "GCR image removed successfully"
+      log_success "GCR image removed successfully"
     else
-      log "WARNING: Failed to remove image from GCR"
+      log_warning "Failed to remove image from GCR"
     fi
   else
     log "GCR image deletion cancelled by user"
@@ -107,7 +97,7 @@ read -p "Would you like to run 'docker system prune' to clean up unused Docker r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
   log "Running Docker system prune..."
   docker system prune -f
-  log "Docker cleanup completed"
+  log_success "Docker cleanup completed"
 else
   log "Docker system prune skipped"
 fi

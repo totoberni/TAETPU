@@ -1,204 +1,148 @@
 #!/bin/bash
 
-# --- HELPER FUNCTIONS ---
-log() {
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$timestamp] $1"
-}
-
-handle_error() {
-  local line_no=$1
-  local error_code=$2
-  log "ERROR: Command failed at line $line_no with exit code $error_code"
-  exit $error_code
-}
-
-show_usage() {
-  echo "Usage: $0 [-a|--all] [file1.py file2.py ...]"
-  echo ""
-  echo "Remove specified mounted files from the TPU VM."
-  echo ""
-  echo "Options:"
-  echo "  -a, --all    Remove all files from the mounted directory"
-  echo "  -h, --help   Show this help message"
-  echo ""
-  echo "Examples:"
-  echo "  $0 example.py               # Remove only example.py"
-  echo "  $0 model.py data_utils.py   # Remove multiple specific files"
-  echo "  $0 --all                    # Remove all mounted files"
-  echo ""
-  echo "Note: This script can be run from any directory in the codebase"
-  exit 1
-}
-
-# Set up error trapping
-trap 'handle_error ${LINENO} $?' ERR
-
-# --- MAIN SCRIPT ---
-# Get the absolute path to the project root directory - works from any directory
+# --- DETERMINE SCRIPT AND PROJECT DIRECTORIES ---
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REMOVE_ALL=false
-FILES_TO_REMOVE=()
 
-# Parse command line arguments
+# --- IMPORT COMMON FUNCTIONS ---
+source "$PROJECT_DIR/setup/scripts/common.sh"
+
+show_usage() {
+  echo "Usage: $0 [filename1.py filename2.py ...] [--utils] [--all] [--auto-confirm]"
+  echo ""
+  echo "Remove file(s) from the TPU VM and optionally clean up Docker volumes."
+  echo ""
+  echo "Arguments:"
+  echo "  filename1.py filename2.py   Files to remove from TPU VM (must be in /dev/src or /dev/src/utils)"
+  echo "  --utils                    Remove the utils directory"
+  echo "  --all                      Remove all mounted files and directories"
+  echo "  --auto-confirm             Skip confirmation prompts"
+  echo ""
+  echo "Examples:"
+  echo "  $0 example.py               # Remove a single file"
+  echo "  $0 --utils                  # Remove only the utils directory"
+  echo "  $0 example.py train.py      # Remove multiple files"
+  echo "  $0 --all                    # Remove everything in the dev directory"
+  exit 1
+}
+
+# Function to load mount information from temp file
+load_mount_info() {
+  MOUNT_INFO_FILE="$PROJECT_DIR/source/.mount_info.tmp"
+  if [[ -f "$MOUNT_INFO_FILE" ]]; then
+    log "Found mount information file"
+    source "$MOUNT_INFO_FILE"
+    return 0
+  else
+    log_warning "No mount information file found. Will rely on command arguments."
+    return 1
+  fi
+}
+
+# Main script starts here
 if [ $# -eq 0 ]; then
   show_usage
 fi
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -a|--all)
-      REMOVE_ALL=true
-      shift # shift past the argument
-      ;;
-    -h|--help)
-      show_usage
-      ;;
-    *)
-      # Assume this is a file to remove
-      FILES_TO_REMOVE+=("$1")
-      shift # shift past the argument
-      ;;
-  esac
-done
-
-log 'Starting TPU development environment cleanup process...'
 
 log 'Loading environment variables...'
 source "$PROJECT_DIR/source/.env"
 log 'Environment variables loaded successfully'
 
 # Validate required environment variables
-if [[ -z "$PROJECT_ID" || -z "$TPU_ZONE" || -z "$TPU_NAME" ]]; then
-  log "ERROR: Required environment variables are missing"
-  log "Ensure PROJECT_ID, TPU_ZONE, and TPU_NAME are set in .env"
-  exit 1
-fi
+check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME"
 
-log "Configuration:"
-log "- Project ID: $PROJECT_ID"
-log "- TPU Zone: $TPU_ZONE"
-log "- TPU Name: $TPU_NAME"
+# Parse arguments
+FILES_TO_REMOVE=()
+REMOVE_UTILS=false
+REMOVE_ALL=false
+AUTO_CONFIRM=false
 
-# Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
-  log 'Setting up service account credentials...'
-  export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
-  gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-  log 'Service account authentication successful'
-fi
-
-# Get current list of files in the mounted directory
-log "Checking current mounted files..."
-TEMP_FILE=$(mktemp)
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID" \
-    --worker=all \
-    --command="ls -1 /tmp/dev/src/ 2>/dev/null || echo 'EMPTY'" > "$TEMP_FILE"
-
-# Check if the directory exists or is empty
-if grep -q "EMPTY" "$TEMP_FILE"; then
-  log "No mounted files found or directory doesn't exist"
-  rm "$TEMP_FILE"
-  exit 0
-fi
-
-# Process the file list
-CURRENT_FILES=()
-while IFS= read -r line; do
-  if [[ -n "$line" && "$line" != "EMPTY" ]]; then
-    CURRENT_FILES+=("$line")
+for arg in "$@"; do
+  if [[ "$arg" == "--utils" ]]; then
+    REMOVE_UTILS=true
+  elif [[ "$arg" == "--all" ]]; then
+    REMOVE_ALL=true
+  elif [[ "$arg" == "--auto-confirm" ]]; then
+    AUTO_CONFIRM=true
+  elif [[ "$arg" == *.py ]]; then
+    FILES_TO_REMOVE+=("$arg")
+  else
+    log_warning "Unknown argument: $arg"
   fi
-done < "$TEMP_FILE"
-rm "$TEMP_FILE"
+done
 
-if [[ ${#CURRENT_FILES[@]} -eq 0 ]]; then
-  log "No mounted files found"
+# Load mount information if available
+load_mount_info
+
+# Target directory on TPU VM
+TARGET_DIR="/tmp/dev/src"
+
+# Check if development directory exists
+if ! ssh_with_timeout "test -d ${TARGET_DIR} && echo 'exists'" | grep -q "exists"; then
+  log_warning "Directory ${TARGET_DIR} does not exist on TPU VM"
+  if [[ ${#FILES_TO_REMOVE[@]} -eq 0 && "$REMOVE_UTILS" == "false" && "$REMOVE_ALL" == "false" ]]; then
+    log_warning "Nothing to clean, exiting"
+    exit 0
+  fi
+fi
+
+# Handle --all flag
+if [[ "$REMOVE_ALL" == "true" ]]; then
+  if [[ "$AUTO_CONFIRM" != "true" ]]; then
+    read -p "Are you sure you want to remove ALL mounted files? (y/n): " CONFIRM
+    if [[ "$CONFIRM" != "y" ]]; then
+      log "Operation cancelled by user"
+      exit 0
+    fi
+  fi
+  
+  log "Removing all files from ${TARGET_DIR}..."
+  ssh_with_timeout "if [ -d ${TARGET_DIR} ]; then rm -rf ${TARGET_DIR}/* 2>/dev/null || true; fi"
+  log_success "All files removed from TPU VM"
+  
+  # Prune Docker volumes
+  log "Pruning Docker volumes..."
+  ssh_with_timeout "docker volume prune -f" 15
+  log_success "Docker volumes pruned"
+  
   exit 0
 fi
 
-log "Current mounted files: ${CURRENT_FILES[*]}"
+# Handle utils directory removal
+if [[ "$REMOVE_UTILS" == "true" ]]; then
+  log "Removing utils directory from TPU VM..."
+  ssh_with_timeout "if [ -d ${TARGET_DIR}/utils ]; then rm -rf ${TARGET_DIR}/utils 2>/dev/null || true; fi"
+  log_success "Utils directory removed from TPU VM"
+fi
 
-# Determine which files to remove
-if [[ "$REMOVE_ALL" == "true" ]]; then
-  log "Preparing to remove all mounted files"
-  FILES_TO_REMOVE=("${CURRENT_FILES[@]}")
-else
-  log "Preparing to remove specified files: ${FILES_TO_REMOVE[*]}"
-  # Validate that the specified files exist in the mounted directory
+# Remove individual files
+if [[ ${#FILES_TO_REMOVE[@]} -gt 0 ]]; then
+  log "Removing ${#FILES_TO_REMOVE[@]} file(s) from TPU VM..."
+  
   for file in "${FILES_TO_REMOVE[@]}"; do
-    if ! echo "${CURRENT_FILES[@]}" | grep -q "$file"; then
-      log "WARNING: File '$file' not found in mounted directory"
+    # First check in the main dev directory
+    if ssh_with_timeout "test -f ${TARGET_DIR}/${file} && echo 'exists'" | grep -q "exists"; then
+      log "Removing ${file} from main directory..."
+      ssh_with_timeout "rm -f ${TARGET_DIR}/${file}"
+      log_success "${file} removed from TPU VM"
+    # Then check in the utils directory
+    elif ssh_with_timeout "test -f ${TARGET_DIR}/utils/${file} && echo 'exists'" | grep -q "exists"; then
+      log "Removing ${file} from utils directory..."
+      ssh_with_timeout "rm -f ${TARGET_DIR}/utils/${file}"
+      log_success "${file} removed from utils directory"
+    else
+      log_warning "${file} not found on TPU VM - already removed or never mounted"
     fi
   done
 fi
 
-if [[ ${#FILES_TO_REMOVE[@]} -eq 0 ]]; then
-  log "No files to remove"
-  exit 0
+# Prune Docker volumes if we removed anything
+if [[ "$REMOVE_UTILS" == "true" || ${#FILES_TO_REMOVE[@]} -gt 0 || "$REMOVE_ALL" == "true" ]]; then
+  log "Pruning unused Docker volumes..."
+  ssh_with_timeout "docker volume prune -f" 15
+  log_success "Docker volume pruning complete"
 fi
 
-# Remove each file from the TPU VM
-log "Removing files from TPU VM..."
-for file in "${FILES_TO_REMOVE[@]}"; do
-  log "- Removing $file"
-  gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-      --zone="$TPU_ZONE" \
-      --project="$PROJECT_ID" \
-      --worker=all \
-      --command="rm -f /tmp/dev/src/$file"
-done
-
-# Verify files were removed successfully
-log "Verifying files were removed from TPU VM..."
-TEMP_FILE=$(mktemp)
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID" \
-    --worker=all \
-    --command="ls -1 /tmp/dev/src/ 2>/dev/null || echo 'EMPTY'" > "$TEMP_FILE"
-
-REMAINING_FILES=()
-if ! grep -q "EMPTY" "$TEMP_FILE"; then
-  while IFS= read -r line; do
-    if [[ -n "$line" && "$line" != "EMPTY" ]]; then
-      REMAINING_FILES+=("$line")
-    fi
-  done < "$TEMP_FILE"
-fi
-rm "$TEMP_FILE"
-
-# Check if any of the files that should have been removed are still present
-FAILED_REMOVALS=()
-for file in "${FILES_TO_REMOVE[@]}"; do
-  if echo "${REMAINING_FILES[@]}" | grep -q "$file"; then
-    FAILED_REMOVALS+=("$file")
-  fi
-done
-
-if [[ ${#FAILED_REMOVALS[@]} -gt 0 ]]; then
-  log "WARNING: Failed to remove the following files: ${FAILED_REMOVALS[*]}"
-else
-  log "All specified files successfully removed"
-fi
-
-if [[ ${#REMAINING_FILES[@]} -gt 0 ]]; then
-  log "Remaining mounted files: ${REMAINING_FILES[*]}"
-else
-  log "No files remain in the mounted directory"
-  # If all files were removed and the directory is empty, optionally remove the directory
-  if [[ "$REMOVE_ALL" == "true" ]]; then
-    log "Removing empty mounted directory..."
-    gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-        --zone="$TPU_ZONE" \
-        --project="$PROJECT_ID" \
-        --worker=all \
-        --command="rm -rf /tmp/dev/src"
-    log "Mounted directory removed"
-  fi
-fi
-
-log "Cleanup process completed." 
+log_success "Cleanup process completed successfully"
+exit 0

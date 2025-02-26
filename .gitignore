@@ -1,1 +1,25 @@
-infra-tempo-401122-43a982d9ccd3.json
+# Service account keys and credentials
+*.json
+!package.json
+!package-lock.json
+*.pem
+*.p12
+*.key
+*.pfx
+
+# Environment variables and secrets
+.env
+.env.*
+*.env
+
+# Other potentially sensitive files
+credentials/
+secrets/
+keys/
+
+# From existing file
+infra-tempo-401122-*.json
+
+# Logs and local data
+logs/
+*.log

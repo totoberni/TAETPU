@@ -16,12 +16,13 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements file
 COPY setup/docker/requirements.txt .
 
-# Install dependencies with specific versions
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir 'torch_xla[tpu]' -f https://storage.googleapis.com/libtpu-releases/index.html
+# Install all dependencies in a single layer to reduce potential caching issues
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir torch_xla==2.6.0 -f https://storage.googleapis.com/libtpu-releases/index.html && \
+    pip install --no-cache-dir libtpu==0.0.7.1 tpu-info
 
 # Copy the source code
-COPY src/ .
+COPY setup/ .
 
 # Set environment variables for TPU
 ENV PJRT_DEVICE=TPU

@@ -1,31 +1,22 @@
 #!/bin/bash
 
-# Helper function for logging
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-# Error handling function
-handle_error() {
-    local line_no=$1
-    local error_code=$2
-    log "ERROR: Command failed at line $line_no with exit code $error_code"
-    exit $error_code
-}
-
-# Set up error trapping
-trap 'handle_error ${LINENO} $?' ERR
-
-# Load environment variables
-log "Loading environment variables..."
-# Fix the path to .env - use script directory as reference
+# --- Get script directory for absolute path references ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-source "$SCRIPT_DIR/../source/.env"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# --- Import common functions ---
+source "$SCRIPT_DIR/common.sh"
+
+# --- MAIN SCRIPT ---
+log "Loading environment variables..."
+# Load from the absolute path
+ENV_FILE="$PROJECT_DIR/source/.env"
+source "$ENV_FILE"
 
 # Validate required environment variables
 if [[ -z "$PROJECT_ID" || -z "$TPU_REGION" || -z "$TPU_TYPE" ]]; then
-    log "ERROR: Required environment variables are missing."
-    log "Ensure PROJECT_ID, TPU_REGION, and TPU_TYPE are set in .env file."
+    log_error "Required environment variables are missing."
+    log_error "Ensure PROJECT_ID, TPU_REGION, and TPU_TYPE are set in .env file."
     exit 1
 fi
 
@@ -35,11 +26,11 @@ log "- TPU Region: $TPU_REGION"
 log "- TPU Type: $TPU_TYPE"
 
 # Set up authentication if provided
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON" ]]; then
+if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
     log "Authenticating with service account..."
-    export GOOGLE_APPLICATION_CREDENTIALS="$SCRIPT_DIR/../source/$SERVICE_ACCOUNT_JSON"
+    export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
     gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-    log "Service account authentication successful"
+    log_success "Service account authentication successful"
 fi
 
 # Get all zones in the region (with proper trimming)
@@ -122,7 +113,7 @@ done
 if [[ -n "$FOUND_ZONE" ]]; then
     log "Successfully found matching zone: $FOUND_ZONE"
     # Update TPU_ZONE in the .env file
-    ENV_FILE="$SCRIPT_DIR/../source/.env"
+    ENV_FILE="$SCRIPT_DIR/../../source/.env"
     
     # Check if .env file is writable
     if [[ ! -w "$ENV_FILE" ]]; then
