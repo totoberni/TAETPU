@@ -7,7 +7,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SRC_DIR="$PROJECT_DIR/dev/src"
 
 # --- IMPORT COMMON FUNCTIONS ---
-source "$PROJECT_DIR/setup/scripts/common.sh"
+source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 show_usage() {
   echo "Usage: $0 [-a|--all] [file1.py file2.py ...] [--utils]"

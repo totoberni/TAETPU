@@ -131,21 +131,24 @@ The project has been fully refactored to ensure that all scripts can be called f
 │   │   ├── synch.sh              # Enhanced script for syncing and watching code changes (CI/CD)
 │   │   └── monitor_tpu.sh        # Self-contained TPU monitoring script
 │   └── README.md                 # Documentation for the development workflow
-├── setup/                        # Setup and execution scripts
-│   ├── scripts/                  # Setup, teardown and utility scripts
-│   │   ├── check_zones.sh        # Script to find available TPU zones
-│   │   ├── common.sh             # Common bash utilities and logging functions
-│   │   ├── setup_bucket.sh       # Script to create GCS bucket
-│   │   ├── setup_image.sh        # Script to build and push Docker image to GCR
-│   │   ├── setup_tpu.sh          # Script to create TPU VM and pull Docker image
+├── src/                          # Source code for the project
+│   ├── setup/                    # Setup scripts and configuration
+│   │   ├── scripts/              # Scripts for setting up the environment
+│   │   │   ├── check_zones.sh    # Script to find available TPU zones
+│   │   │   ├── setup_bucket.sh   # Script to create GCS bucket
+│   │   │   ├── setup_image.sh    # Script to build and push Docker image to GCR
+│   │   │   ├── setup_tpu.sh      # Script to create TPU VM and pull Docker image
+│   │   │   ├── verify_setup.sh   # Script to verify TPU setup and PyTorch/XLA
+│   │   │   └── verify.py         # Python verification utility for TPU setup
+│   │   └── docker/               # Docker configuration
+│   │       ├── Dockerfile        # Docker image definition
+│   │       └── requirements.txt  # Python dependencies
+│   ├── teardown/                 # Scripts for resource cleanup
 │   │   ├── teardown_bucket.sh    # Script to delete GCS bucket
 │   │   ├── teardown_image.sh     # Script to clean up Docker images locally and in GCR
-│   │   ├── teardown_tpu.sh       # Script to delete TPU VM
-│   │   ├── verify_setup.sh       # Script to verify TPU setup and PyTorch/XLA
-│   │   └── verify.py             # Python verification utility for TPU setup
-│   └── docker/                   # Docker configuration
-│       ├── Dockerfile            # Docker image definition
-│       └── requirements.txt      # Python dependencies
+│   │   └── teardown_tpu.sh       # Script to delete TPU VM
+│   └── utils/                    # Shared utilities
+│       └── common_logging.sh     # Common bash utilities and logging functions
 └── source/                       # Configuration and credential files
     ├── .env                      # Environment variables and configuration
     └── service-account.json      # Service account key (replace with your own)
@@ -216,7 +219,8 @@ Follow these steps in order to set up your TPU environment and prepare for exper
 
 Make all scripts executable:
 ```bash
-chmod +x setup/scripts/*.sh
+chmod +x src/setup/scripts/*.sh
+chmod +x src/teardown/*.sh
 chmod +x dev/mgt/*.sh
 ```
 
@@ -226,7 +230,7 @@ First, find a zone where your desired TPU type is available:
 
 ```bash
 # Run the zone checker (can be run from any directory)
-./setup/scripts/check_zones.sh
+./src/setup/scripts/check_zones.sh
 ```
 
 This script will:
@@ -239,7 +243,7 @@ This script will:
 Create a bucket for storing experiment data, model checkpoints, and logs:
 
 ```bash
-./setup/scripts/setup_bucket.sh
+./src/setup/scripts/setup_bucket.sh
 ```
 
 #### 4. Build and Push the Docker Image
@@ -247,7 +251,7 @@ Create a bucket for storing experiment data, model checkpoints, and logs:
 Build your Docker image and push it to Google Container Registry:
 
 ```bash
-./setup/scripts/setup_image.sh
+./src/setup/scripts/setup_image.sh
 ```
 
 #### 5. Set Up TPU VM and Pull Docker Image
@@ -255,7 +259,7 @@ Build your Docker image and push it to Google Container Registry:
 Create the TPU VM and pull the Docker image:
 
 ```bash
-./setup/scripts/setup_tpu.sh
+./src/setup/scripts/setup_tpu.sh
 ```
 
 #### 6. Verify TPU Environment
@@ -263,7 +267,7 @@ Create the TPU VM and pull the Docker image:
 Verify that PyTorch and XLA are properly installed and can access the TPU:
 
 ```bash
-./setup/scripts/verify_setup.sh
+./src/setup/scripts/verify_setup.sh
 ```
 
 ### TPU Monitoring Tools
@@ -309,13 +313,13 @@ When you're done, clean up resources in this order:
 
 ```bash
 # Delete the TPU VM
-./setup/scripts/teardown_tpu.sh
+./src/teardown/teardown_tpu.sh
 
 # Delete the Docker images (local and GCR)
-./setup/scripts/teardown_image.sh
+./src/teardown/teardown_image.sh
 
 # Delete the GCS bucket (will prompt for confirmation)
-./setup/scripts/teardown_bucket.sh
+./src/teardown/teardown_bucket.sh
 ```
 
 ## CI/CD Development Workflow

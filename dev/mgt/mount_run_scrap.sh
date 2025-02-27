@@ -8,7 +8,7 @@ MGT_DIR="$PROJECT_DIR/dev/mgt"
 SRC_DIR="$PROJECT_DIR/dev/src"
 
 # --- IMPORT COMMON FUNCTIONS ---
-source "$PROJECT_DIR/setup/scripts/common.sh"
+source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 show_usage() {
   echo "Usage: $0 [filename1.py filename2.py ...] [--clean] [--utils] [script_args...]"

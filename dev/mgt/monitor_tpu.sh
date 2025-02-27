@@ -6,7 +6,7 @@ SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- IMPORT COMMON FUNCTIONS ---
-source "$PROJECT_DIR/setup/scripts/common.sh"
+source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 # --- HELPER FUNCTIONS (copied from common.sh to avoid cross-referencing) ---
 log() {

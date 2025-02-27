@@ -5,7 +5,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- Import common functions ---
-source "$SCRIPT_DIR/common.sh"
+source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 # --- MAIN SCRIPT ---
 init_script 'TPU teardown'
