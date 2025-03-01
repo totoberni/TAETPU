@@ -107,7 +107,7 @@ tpu_logger.log_metrics(step=current_step)
 
 ## Project Structure
 
-The project has been fully refactored to ensure that all scripts can be called from any directory, with proper path resolution and consistent logging.
+The project has been organized with a standardized configuration system that ensures all components use a centralized YAML configuration with environment variable support.
 
 ```
 .
@@ -118,17 +118,25 @@ The project has been fully refactored to ensure that all scripts can be called f
 │   ├── src/                      # Development code to run on TPU
 │   │   ├── example.py            # Example file for TPU code development
 │   │   ├── example_monitoring.py # Example using monitoring capabilities 
+│   │   ├── start_monitoring.py   # Script to start/stop monitoring system
+│   │   ├── start_monitoring.sh   # Shell wrapper for monitoring system
+│   │   ├── run_example.sh        # Script to run example with monitoring
 │   │   └── utils/                # Utilities for development code
 │   │       ├── experiment.py     # Experiment tracking utilities
 │   │       ├── profiling.py      # TPU profiling utilities
-│   │       ├── tpu_logging.py    # TPU-specific logging utilities
-│   │       └── visualization.py  # Data visualization utilities
+│   │       ├── api/              # API integration utilities
+│   │       ├── dashboards/       # Dashboard visualization components
+│   │       ├── monitors/         # Monitoring system components
+│   │       └── logging/          # Logging and configuration utilities
+│   │           ├── cls_logging.py # Logging implementation
+│   │           ├── config_loader.py # Configuration loading system
+│   │           └── log_config.yaml # Centralized YAML configuration
 │   ├── mgt/                      # Management scripts for development (all self-contained)
 │   │   ├── mount.sh              # Script to mount files to TPU VM
 │   │   ├── run.sh                # Script to execute files on TPU VM
 │   │   ├── scrap.sh              # Script to remove files from TPU VM
 │   │   ├── mount_run_scrap.sh    # All-in-one script to mount, run, and clean up
-│   │   ├── synch.sh              # Enhanced script for syncing and watching code changes (CI/CD)
+│   │   ├── synch.sh              # Enhanced script for syncing and watching code changes
 │   │   └── monitor_tpu.sh        # Self-contained TPU monitoring script
 │   └── README.md                 # Documentation for the development workflow
 ├── src/                          # Source code for the project
@@ -153,6 +161,30 @@ The project has been fully refactored to ensure that all scripts can be called f
     ├── .env                      # Environment variables and configuration
     └── service-account.json      # Service account key (replace with your own)
 ```
+
+## Recent Improvements
+
+The codebase has been refactored with the following improvements:
+
+1. **Standardized Configuration System**:
+   - Centralized YAML configuration file (`log_config.yaml`) for all settings
+   - Environment variable support with defaults using `${VAR_NAME:-default}` syntax
+   - Dynamic resolution of environment variables to adapt to changes in system configuration
+   - Simplified configuration loading without complex fallback mechanisms
+
+2. **Absolute Path References**: All scripts now use absolute path resolution to determine their location, allowing them to be called from any directory in the project.
+
+3. **Centralized Logging**: Most scripts utilize a common logging framework from `common.sh` for consistent output styling and error handling.
+
+4. **Environment Variable Validation**: Scripts now properly validate required environment variables before execution.
+
+5. **Enhanced Error Handling**: Better error reporting and graceful failures when prerequisites aren't met.
+
+6. **Self-Contained Development Scripts**: The scripts in `dev/mgt` are now self-contained with their own logging functions, avoiding cross-directory dependencies.
+
+7. **Improved Security**: Scripts properly check for and use service account credentials when available.
+
+8. **Consistent Configuration**: All scripts use the same approach to loading and validating configuration.
 
 ## Setting Up the Environment
 
@@ -378,24 +410,6 @@ The development tools can be integrated into CI/CD pipelines:
 
 For more detailed information on the CI/CD workflow, see the [dev/README.md](dev/README.md) documentation.
 
-## Recent Improvements
-
-The codebase has been refactored with the following improvements:
-
-1. **Absolute Path References**: All scripts now use absolute path resolution to determine their location, allowing them to be called from any directory in the project.
-
-2. **Centralized Logging**: Most scripts utilize a common logging framework from `common.sh` for consistent output styling and error handling.
-
-3. **Environment Variable Validation**: Scripts now properly validate required environment variables before execution.
-
-4. **Enhanced Error Handling**: Better error reporting and graceful failures when prerequisites aren't met.
-
-5. **Self-Contained Development Scripts**: The scripts in `dev/mgt` are now self-contained with their own logging functions, avoiding cross-directory dependencies.
-
-6. **Improved Security**: Scripts properly check for and use service account credentials when available.
-
-7. **Consistent Configuration**: All scripts use the same approach to loading and validating configuration.
-
 ## System Requirements
 
 - Docker Desktop installed and running
@@ -419,3 +433,129 @@ For more information, refer to:
 - [TPU Performance Guide](https://cloud.google.com/tpu/docs/performance-guide)
 - [Attention Is All You Need (original Transformer paper)](https://arxiv.org/abs/1706.03762)
 - [Transformer architecture studies and analyses](https://arxiv.org/abs/2103.03404)
+
+# TPU Monitoring System Workflow
+
+## Overview
+
+This repository contains a comprehensive system for monitoring TPU (Tensor Processing Unit) workloads. The system provides real-time insights into TPU performance, Google Cloud Storage (GCS) bucket usage, and data transfer metrics. The codebase is designed to be mounted on TPU VMs and run alongside TPU workloads to collect and visualize performance data.
+
+## Directory Structure
+
+The codebase is organized into the following key directories:
+
+- `dev/src/utils/`: Core utilities for monitoring, including:
+  - `utils/monitors/`: Classes for monitoring different aspects of TPU execution
+  - `utils/dashboards/`: Visualization components for real-time monitoring data
+  - `utils/logging/`: Logging utilities for the monitoring system
+  - `utils/api/`: API interfaces for external integrations
+
+- `dev/src/`: Contains the main scripts:
+  - `example.py`: Example TPU workflow that can be monitored
+  - `start_monitoring.py`: Python script to start/stop the monitoring system
+  - `start_monitoring.sh`: Shell wrapper for the monitoring system
+  - `run_example.sh`: Script to run the example with monitoring enabled
+
+## Workflow
+
+### 1. Starting the Monitoring System
+
+The monitoring system can be started in two ways:
+
+#### Option 1: Direct start using start_monitoring.sh
+
+```bash
+# Start with default settings
+./dev/src/start_monitoring.sh
+
+# Start with custom configuration
+./dev/src/start_monitoring.sh --config path/to/config.yaml --env path/to/.env --webapp
+```
+
+#### Option 2: Start with run_example.sh
+
+The `run_example.sh` script starts monitoring automatically before running the example:
+
+```bash
+# Run example with monitoring (starts monitoring first)
+./dev/src/run_example.sh --bucket my-bucket --matrix-size 5000 --interval 30
+```
+
+### 2. Running the TPU Workload (example.py)
+
+The `example.py` script demonstrates a complete TPU workload, including:
+
+1. Creating and uploading mock data to GCS
+2. Loading and preprocessing data on TPU
+3. Performing matrix multiplication on TPU
+4. Storing results back to GCS
+
+The monitoring system collects metrics throughout this execution process.
+
+### 3. Monitoring Features
+
+The monitoring system provides:
+
+- **TPU Performance Metrics**: CPU utilization, memory usage, TPU operations/sec
+- **GCS Bucket Monitoring**: Storage usage, read/write operations
+- **Data Transfer Tracking**: Network throughput between TPU VM and GCS
+
+Metrics are collected at the specified interval (default: 30 seconds) and can be visualized through:
+
+- TensorBoard dashboards
+- Cloud Monitoring (if enabled)
+- Real-time API endpoints (if --webapp is enabled)
+
+### 4. Generating Reports
+
+After the workload completes, `run_example.sh` automatically generates a monitoring report:
+
+```bash
+# Generate report manually if needed
+python dev/src/start_monitoring.py report --output-dir logs/reports
+```
+
+### 5. Cleanup
+
+When finished, the monitoring system can be stopped:
+
+```bash
+# If --keep-monitoring was not used, run_example.sh stops monitoring automatically
+# To stop manually:
+python dev/src/start_monitoring.py stop
+```
+
+## Configuration
+
+The monitoring system is configured through a standardized system using:
+
+1. A centralized YAML configuration file (`utils/logging/log_config.yaml`)
+2. Environment variables from `.env` files with dynamic resolution
+3. Command-line arguments to `start_monitoring.py` or `run_example.sh`
+
+The configuration system ensures all components consistently use the same settings for directories, intervals, and credentials.
+
+## Requirements
+
+- Google Cloud Platform account with TPU VMs
+- GCS bucket for data storage
+- Python 3.7+ with TensorFlow installed
+- Google Cloud SDK
+
+## Example Workflow
+
+A typical workflow might look like:
+
+1. Mount code to TPU VM: `./dev/mgt/mount.sh --all`
+2. Run example with monitoring: `./dev/src/run_example.sh --bucket my-tpu-data`
+3. View generated reports in the `logs/reports` directory
+4. Clean up resources: `./dev/mgt/scrap.sh`
+
+## Troubleshooting
+
+If you encounter issues:
+
+- Check the log files in the `logs` directory
+- Ensure TPU VM has proper permissions for GCS access
+- Verify that all required dependencies are installed
+- Check that paths in configuration files match your environment

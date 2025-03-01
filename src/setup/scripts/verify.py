@@ -3,14 +3,14 @@
 TPU Verification and Hello World Script
 
 This script provides two main functions:
-1. verify_tpu() - Verifies that PyTorch can connect to the TPU device
-2. hello_world() - Runs a simple PyTorch example on the TPU
+1. verify_tpu() - Verifies that TensorFlow can connect to the TPU device
+2. hello_world() - Runs a simple TensorFlow example on the TPU
 
 Both functions demonstrate TPU connectivity and functionality.
 """
 import os
 import sys
-import torch
+import tensorflow as tf
 
 def verify_tpu():
     """Verify TPU is accessible and working properly."""
@@ -20,50 +20,50 @@ def verify_tpu():
     
     # Print environment information
     print("\nEnvironment Information:")
-    print(f"- PJRT_DEVICE = {os.environ.get('PJRT_DEVICE', 'Not set')}")
-    print(f"- XLA_USE_BF16 = {os.environ.get('XLA_USE_BF16', 'Not set')}")
     print(f"- TF_CPP_MIN_LOG_LEVEL = {os.environ.get('TF_CPP_MIN_LOG_LEVEL', 'Not set')}")
     print(f"- LD_LIBRARY_PATH = {os.environ.get('LD_LIBRARY_PATH', 'Not set')}")
     
-    # Ensure PJRT_DEVICE environment variable is set
-    if 'PJRT_DEVICE' not in os.environ:
-        print("Setting PJRT_DEVICE=TPU")
-        os.environ['PJRT_DEVICE'] = 'TPU'
-    
-    # Print PyTorch version
-    print(f"\nPyTorch version: {torch.__version__}")
+    # Print TensorFlow version
+    print(f"\nTensorFlow version: {tf.__version__}")
     
     try:
-        # Import torch_xla
-        import torch_xla
-        import torch_xla.core.xla_model as xm
-        
-        print(f"PyTorch XLA version: {torch_xla.__version__}")
-        
-        # Get TPU devices - using the correct API without devkind
+        # Try to detect TPU
         print("\nChecking for TPU devices...")
-        devices = xm.get_xla_supported_devices()
-        print(f"Available TPU devices: {devices}")
+        tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
+        print(f"TPU: {tpu.cluster_spec().as_dict()}")
         
-        if not devices:
+        # Connect to the TPU
+        print("Connecting to TPU...")
+        tf.config.experimental_connect_to_cluster(tpu)
+        
+        # Initialize TPU system
+        print("Initializing TPU system...")
+        tf.tpu.experimental.initialize_tpu_system(tpu)
+        
+        # Check available TPU devices
+        print("\nListing TPU devices...")
+        tpu_devices = tf.config.list_logical_devices('TPU')
+        print(f"Available TPU devices: {tpu_devices}")
+        
+        if not tpu_devices:
             print("\nWARNING: No TPU devices found!")
             print("Troubleshooting suggestions:")
             print("1. Ensure Docker is running with --privileged flag")
-            print("2. Ensure PJRT_DEVICE=TPU is set")
-            print("3. Check if TPU device exists at /dev/accel*")
-            print("4. Verify TPU health with 'gcloud compute tpus tpu-vm describe'")
+            print("2. Check if TPU device exists at /dev/accel*")
+            print("3. Verify TPU health with 'gcloud compute tpus tpu-vm describe'")
             return False
         
-        # Try to get a device
-        print("\nAttempting to acquire TPU device...")
-        device = xm.xla_device()
-        print(f"Using XLA device: {device}")
+        # Create TPU distribution strategy
+        print("\nCreating TPU distribution strategy...")
+        strategy = tf.distribute.TPUStrategy(tpu)
+        print(f"TPU strategy created: {strategy}")
         
         # Try basic tensor operations
         print("\nPerforming basic tensor operation...")
-        t = torch.randn(3, 3, device=device)
-        result = t + t
-        print(f"Addition successful, tensor shape: {result.shape}")
+        with strategy.scope():
+            t = tf.random.normal([3, 3])
+            result = t + t
+            print(f"Addition successful, tensor shape: {result.shape}")
         
         print("\nTPU verification SUCCESSFUL! *")
         return True
@@ -75,53 +75,56 @@ def verify_tpu():
         print("1. Ensure Docker container has --privileged flag and device mapping")
         print("2. Verify environment variables are correctly set")
         print("3. Check TPU health with Google Cloud CLI tools")
-        print("4. Ensure the TPU runtime is compatible with your PyTorch/XLA version")
+        print("4. Ensure the TPU runtime is compatible with your TensorFlow version")
         return False
 
 def hello_world():
-    """Run a simple PyTorch example on the TPU."""
+    """Run a simple TensorFlow example on the TPU."""
     print("="*50)
     print("Hello World from Google Cloud TPU!")
     print("="*50)
     
-    # Ensure PJRT_DEVICE environment variable is set
-    if 'PJRT_DEVICE' not in os.environ:
-        print("Setting PJRT_DEVICE=TPU")
-        os.environ['PJRT_DEVICE'] = 'TPU'
-    
-    # Import PyTorch and torch_xla
+    # Import TensorFlow
     try:
-        import torch_xla
-        import torch_xla.core.xla_model as xm
+        print(f"TensorFlow version: {tf.__version__}")
         
-        print(f"PyTorch version: {torch.__version__}")
-        print(f"PyTorch-XLA version: {torch_xla.__version__}")
+        # Detect and connect to TPU
+        tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
+        print(f"TPU: {tpu.cluster_spec().as_dict()}")
+        
+        # Connect to the TPU
+        tf.config.experimental_connect_to_cluster(tpu)
+        
+        # Initialize TPU system
+        tf.tpu.experimental.initialize_tpu_system(tpu)
         
         # List available TPU devices
-        devices = xm.get_xla_supported_devices()
-        print(f"Available TPU devices: {devices}")
+        tpu_devices = tf.config.list_logical_devices('TPU')
+        print(f"Available TPU devices: {tpu_devices}")
         
-        if not devices:
+        if not tpu_devices:
             print("WARNING: No TPU devices found!")
             return False
             
-        # Get the XLA device
-        device = xm.xla_device()
-        print(f"Using XLA device: {device}")
+        # Create TPU distribution strategy
+        strategy = tf.distribute.TPUStrategy(tpu)
+        print(f"TPU strategy created: {strategy}")
         
-        # Create tensors on the TPU device
-        t1 = torch.randn(3, 3, device=device)
-        t2 = torch.randn(3, 3, device=device)
-        
-        # Perform a simple operation
-        result = t1 + t2
-        print("\nTensor addition result:")
-        print(result)
-        
-        # Demonstrate that computation is actually performed on the TPU
-        result = result * 2
-        print("\nScaled result (x2):")
-        print(result)
+        # Perform computation in TPU strategy scope
+        with strategy.scope():
+            # Create tensors
+            t1 = tf.random.normal([3, 3])
+            t2 = tf.random.normal([3, 3])
+            
+            # Perform a simple operation
+            result = t1 + t2
+            print("\nTensor addition result:")
+            print(result)
+            
+            # Demonstrate that computation is actually performed on the TPU
+            result = result * 2
+            print("\nScaled result (x2):")
+            print(result)
         
         print("\nHello World computation successful on TPU!")
         return True
@@ -130,9 +133,8 @@ def hello_world():
         print(f"Error during TPU computation: {e}")
         print("\nThis may be resolved by:")
         print("1. Ensuring the Docker container has --privileged flag")
-        print("2. Setting PJRT_DEVICE=TPU environment variable")
-        print("3. Running Docker with proper TPU access")
-        print("4. Checking if the TPU is healthy with 'gcloud compute tpus tpu-vm describe'")
+        print("2. Running Docker with proper TPU access")
+        print("3. Checking if the TPU is healthy with 'gcloud compute tpus tpu-vm describe'")
         return False
 
 def run_all_tests():

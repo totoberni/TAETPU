@@ -6,6 +6,10 @@ SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SRC_DIR="$PROJECT_DIR/dev/src"
 
+# --- DEFINE PATH CONSTANTS - Use these consistently across all scripts ---
+TPU_HOST_PATH="/tmp/dev/src"
+DOCKER_CONTAINER_PATH="/app/dev/src"
+
 # --- IMPORT COMMON FUNCTIONS ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 

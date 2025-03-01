@@ -5,26 +5,78 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# --- DEFINE PATH CONSTANTS - Use these consistently across all scripts ---
+TPU_HOST_PATH="/tmp/dev/src"
+DOCKER_CONTAINER_PATH="/app/dev/src"
+
 # --- IMPORT COMMON FUNCTIONS ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
+# --- HELPER FUNCTIONS ---
+# Function to check if a file exists on the TPU VM
+check_file_exists_on_tpu() {
+  local file=$1
+  local timeout=${2:-10}
+  
+  # Check in main directory
+  if ssh_with_timeout "test -f ${TPU_HOST_PATH}/${file} && echo 'exists'" $timeout | grep -q "exists"; then
+    echo "${TPU_HOST_PATH}/${file}"
+    return 0
+  # Check in utils directory
+  elif ssh_with_timeout "test -f ${TPU_HOST_PATH}/utils/${file} && echo 'exists'" $timeout | grep -q "exists"; then
+    echo "${TPU_HOST_PATH}/utils/${file}"
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Function to mount a file if it's not already on the TPU VM
+ensure_file_mounted() {
+  local file=$1
+  
+  # Check if file exists on TPU VM
+  if check_file_exists_on_tpu "$file" > /dev/null; then
+    log_success "File $file is already mounted on TPU VM"
+    return 0
+  fi
+  
+  # File not found, try to mount it
+  log_warning "File $file not found on TPU VM. Attempting to mount it..."
+  
+  if [[ -f "$PROJECT_DIR/dev/mgt/mount.sh" ]]; then
+    "$PROJECT_DIR/dev/mgt/mount.sh" "$file"
+    if [ $? -eq 0 ]; then
+      log_success "Successfully mounted $file"
+      return 0
+    else
+      log_error "Failed to mount $file"
+      return 1
+    fi
+  else
+    log_error "mount.sh not found. Cannot mount file automatically."
+    return 1
+  fi
+}
+
 show_usage() {
-  echo "Usage: $0 [filename1.py filename2.py ...] [script_args...]"
+  echo "Usage: $0 [file1.py|file1.sh] [file2.py|file2.sh ...] [script_args...]"
   echo ""
-  echo "Run Python file(s) on the TPU VM that have already been mounted."
+  echo "Run Python or shell files on the TPU VM that have already been mounted."
   echo ""
   echo "Arguments:"
-  echo "  filename1.py filename2.py   Python files to execute (must be mounted already)"
-  echo "  script_args                 Optional: Arguments to pass to the last Python script"
+  echo "  file1.py, file2.sh     Files to execute (Python or shell scripts, must be mounted already)"
+  echo "  script_args            Optional: Arguments to pass to the last file"
   echo ""
   echo "Examples:"
-  echo "  $0 example.py               # Run a single file"
+  echo "  $0 example.py               # Run a Python file"
+  echo "  $0 run_example.sh           # Run a shell script"
   echo "  $0 example.py train.py      # Run multiple files sequentially" 
   echo "  $0 train.py --epochs 10     # Run with arguments"
   exit 1
 }
 
-# Main script starts here
+# --- MAIN SCRIPT ---
 if [ $# -eq 0 ]; then
   show_usage
 fi
@@ -42,7 +94,7 @@ SCRIPT_ARGS=()
 COLLECTING_FILES=true
 
 for arg in "$@"; do
-  if [[ "$COLLECTING_FILES" == "true" && "$arg" == *.py ]]; then
+  if [[ "$COLLECTING_FILES" == "true" && ("$arg" == *.py || "$arg" == *.sh) ]]; then
     FILES_TO_RUN+=("$arg")
   else
     COLLECTING_FILES=false
@@ -50,28 +102,47 @@ for arg in "$@"; do
   fi
 done
 
-# Target directory on TPU VM - FIXED: Updated to match where mount.sh places the files
-TARGET_DIR="/tmp/dev/src"
+# Check if utils directory is mounted, mount it if not present
+log "Checking utils directory..."
+if ! ssh_with_timeout "test -d ${TPU_HOST_PATH}/utils && echo 'exists'" | grep -q "exists"; then
+  log_warning "Utils directory not found on TPU VM. Mounting it now..."
+  
+  if [[ -f "$PROJECT_DIR/dev/mgt/mount.sh" ]]; then
+    "$PROJECT_DIR/dev/mgt/mount.sh" --utils
+    if [ $? -eq 0 ]; then
+      log_success "Successfully mounted utils directory"
+    else
+      log_error "Failed to mount utils directory. Scripts may fail if they need common logging functions."
+    fi
+  else
+    log_error "mount.sh not found. Cannot mount utils directory automatically."
+  fi
+else
+  log_success "Utils directory found on TPU VM"
+fi
 
-# Validate that files exist on TPU VM
+# Validate that files exist on TPU VM or attempt to mount them
 log "Checking files on TPU VM..."
 VALID_FILES=()
+
 for file in "${FILES_TO_RUN[@]}"; do
-  # Check in main directory
-  if ssh_with_timeout "test -f ${TARGET_DIR}/${file} && echo 'exists'" | grep -q "exists"; then
-    log_success "Found ${file} in main directory"
-    VALID_FILES+=("${TARGET_DIR}/${file}")
-  # Check in utils directory
-  elif ssh_with_timeout "test -f ${TARGET_DIR}/utils/${file} && echo 'exists'" | grep -q "exists"; then
-    log_success "Found ${file} in utils directory"
-    VALID_FILES+=("${TARGET_DIR}/utils/${file}")
+  # Try to ensure file is mounted
+  if ensure_file_mounted "$file"; then
+    # Get the full path to the file on TPU VM
+    tpu_file_path=$(check_file_exists_on_tpu "$file")
+    if [ -n "$tpu_file_path" ]; then
+      VALID_FILES+=("$tpu_file_path")
+      log_success "Verified file exists: $file at $tpu_file_path"
+    else
+      log_warning "Could not determine path for $file on TPU VM"
+    fi
   else
-    log_warning "${file} not found on TPU VM. Make sure to mount it first using mount.sh"
+    log_warning "Could not mount or find $file on TPU VM - skipping"
   fi
 done
 
 if [ ${#VALID_FILES[@]} -eq 0 ]; then
-  log_error "No valid Python files found on TPU VM. Please mount files first using mount.sh."
+  log_error "No valid files found on TPU VM. Please mount files first using mount.sh."
   exit 1
 fi
 
@@ -82,33 +153,43 @@ for (( i=0; i<${#VALID_FILES[@]}; i++ )); do
   log "Executing: $file"
   
   # Get the relative path to use inside Docker container
-  # The file path will be like /tmp/dev/src/example.py
-  # We need to convert it to /app/dev/src/example.py
-  docker_file_path=$(echo "$file" | sed 's|/tmp/dev/src|/app/dev/src|g')
+  docker_file_path=$(echo "$file" | sed "s|${TPU_HOST_PATH}|${DOCKER_CONTAINER_PATH}|g")
   
-  # Apply script args only to the last file
-  if [[ $i -eq $(( ${#VALID_FILES[@]} - 1 )) && ${#SCRIPT_ARGS[@]} -gt 0 ]]; then
-    log "With arguments: ${SCRIPT_ARGS[*]}"
-    ssh_with_timeout "docker run --rm --privileged \
-      --device=/dev/accel0 \
-      -e PJRT_DEVICE=TPU \
-      -e XLA_USE_BF16=1 \
-      -e PYTHONUNBUFFERED=1 \
-      -v /tmp/dev/src:/app/dev/src \
-      -w /app \
-      gcr.io/$PROJECT_ID/tpu-hello-world:v1 \
-      python $docker_file_path ${SCRIPT_ARGS[*]}" 300
+  # Determine if this is a Python file or shell script
+  if [[ "$file" == *.py ]]; then
+    RUN_CMD="python"
+  elif [[ "$file" == *.sh ]]; then
+    RUN_CMD="bash"
+    
+    # Ensure shell scripts are executable
+    log "Ensuring script is executable..."
+    ssh_with_timeout "chmod +x ${file}" 10
   else
-    ssh_with_timeout "docker run --rm --privileged \
-      --device=/dev/accel0 \
-      -e PJRT_DEVICE=TPU \
-      -e XLA_USE_BF16=1 \
-      -e PYTHONUNBUFFERED=1 \
-      -v /tmp/dev/src:/app/dev/src \
-      -w /app \
-      gcr.io/$PROJECT_ID/tpu-hello-world:v1 \
-      python $docker_file_path" 300
+    log_warning "Unsupported file type for $file. Only .py and .sh files are supported."
+    continue
   fi
+  
+  # Prepare Docker command
+  DOCKER_CMD="docker run --rm --privileged \
+    --device=/dev/accel0 \
+    -e PJRT_DEVICE=TPU \
+    -e XLA_USE_BF16=1 \
+    -e PYTHONUNBUFFERED=1 \
+    -v ${TPU_HOST_PATH}:${DOCKER_CONTAINER_PATH} \
+    -v ${TPU_HOST_PATH}/utils:${DOCKER_CONTAINER_PATH}/utils \
+    -w /app \
+    gcr.io/$PROJECT_ID/tpu-hello-world:v1 \
+    $RUN_CMD $docker_file_path"
+  
+  # Add arguments if this is the last file and there are arguments
+  if [[ $i -eq $(( ${#VALID_FILES[@]} - 1 )) && ${#SCRIPT_ARGS[@]} -gt 0 ]]; then
+    DOCKER_CMD="$DOCKER_CMD ${SCRIPT_ARGS[*]}"
+    log "With arguments: ${SCRIPT_ARGS[*]}"
+  fi
+  
+  # Try running with regular docker
+  log "Running docker command..."
+  ssh_with_timeout "$DOCKER_CMD" 300
   
   run_status=$?
   if [ $run_status -eq 0 ]; then
@@ -118,27 +199,7 @@ for (( i=0; i<${#VALID_FILES[@]}; i++ )); do
     
     # Try with sudo if regular docker failed
     log "Retrying with sudo..."
-    if [[ $i -eq $(( ${#VALID_FILES[@]} - 1 )) && ${#SCRIPT_ARGS[@]} -gt 0 ]]; then
-      ssh_with_timeout "sudo docker run --rm --privileged \
-        --device=/dev/accel0 \
-        -e PJRT_DEVICE=TPU \
-        -e XLA_USE_BF16=1 \
-        -e PYTHONUNBUFFERED=1 \
-        -v /tmp/dev/src:/app/dev/src \
-        -w /app \
-        gcr.io/$PROJECT_ID/tpu-hello-world:v1 \
-        python $docker_file_path ${SCRIPT_ARGS[*]}" 300
-    else
-      ssh_with_timeout "sudo docker run --rm --privileged \
-        --device=/dev/accel0 \
-        -e PJRT_DEVICE=TPU \
-        -e XLA_USE_BF16=1 \
-        -e PYTHONUNBUFFERED=1 \
-        -v /tmp/dev/src:/app/dev/src \
-        -w /app \
-        gcr.io/$PROJECT_ID/tpu-hello-world:v1 \
-        python $docker_file_path" 300
-    fi
+    ssh_with_timeout "sudo $DOCKER_CMD" 300
     
     retry_status=$?
     if [ $retry_status -eq 0 ]; then

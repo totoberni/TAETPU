@@ -6,11 +6,16 @@ SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SRC_DIR="$PROJECT_DIR/dev/src"
 
+# --- DEFINE PATH CONSTANTS - Use these consistently across all scripts ---
+TPU_HOST_PATH="/tmp/dev/src"
+DOCKER_CONTAINER_PATH="/app/dev/src"
+
 # --- IMPORT COMMON FUNCTIONS ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
+# --- HELPER FUNCTIONS ---
 show_usage() {
-  echo "Usage: $0 [-a|--all] [file1.py file2.py ...] [--utils]"
+  echo "Usage: $0 [-a|--all] [file1.py file2.sh ...] [--utils]"
   echo ""
   echo "Mount specified files from dev/src to the TPU VM container."
   echo ""
@@ -21,6 +26,7 @@ show_usage() {
   echo ""
   echo "Examples:"
   echo "  $0 example.py               # Mount only example.py"
+  echo "  $0 run_example.sh           # Mount a shell script"
   echo "  $0 model.py data_utils.py   # Mount multiple specific files"
   echo "  $0 --all                    # Mount all files in dev/src"
   echo "  $0 --utils                  # Mount only the utils directory"
@@ -28,28 +34,6 @@ show_usage() {
   echo ""
   echo "Note: This script can be run from any directory in the codebase"
   exit 1
-}
-
-# Function to create a temporary file with mount information
-create_mount_info() {
-  local mount_info_file="$PROJECT_DIR/source/.mount_info.tmp"
-  
-  # Create or clear the file
-  > "$mount_info_file"
-  
-  # Add timestamp
-  echo "TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')" >> "$mount_info_file"
-  
-  # Add mounted files list (space-separated)
-  echo "MOUNTED_FILES=\"${FILES_TO_MOUNT[*]}\"" >> "$mount_info_file"
-  
-  # Add utils directory mount status
-  echo "UTILS_MOUNTED=$MOUNT_UTILS" >> "$mount_info_file"
-  
-  # Add target directory on TPU VM
-  echo "TPU_TARGET_DIR=/tmp/dev/src" >> "$mount_info_file"
-  
-  log "Mount information saved to temporary file"
 }
 
 # --- MAIN SCRIPT ---
@@ -96,6 +80,8 @@ log "Configuration:"
 log "- Project ID: $PROJECT_ID"
 log "- TPU Zone: $TPU_ZONE"
 log "- TPU Name: $TPU_NAME"
+log "- TPU Host Path: $TPU_HOST_PATH"
+log "- Docker Container Path: $DOCKER_CONTAINER_PATH"
 
 # Set up authentication if provided
 setup_auth
@@ -103,19 +89,21 @@ setup_auth
 # Determine which files to mount
 if [[ "$MOUNT_ALL" == "true" ]]; then
   log "Preparing to mount all files from dev/src directory"
-  # Get all Python files in the src directory that actually exist (excluding utils dir)
+  # Get all files in the src directory (excluding utils dir)
   FILES_TO_MOUNT=()
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
-      FILES_TO_MOUNT+=("$(basename "$file")")
+      # Get just the filename from the path
+      filename=$(basename "$file")
+      FILES_TO_MOUNT+=("$filename")
     fi
-  done < <(find "$SRC_DIR" -maxdepth 1 -type f -name "*.py")
+  done < <(find "$SRC_DIR" -maxdepth 1 -type f)
   
   # Check if we found any files
   if [[ ${#FILES_TO_MOUNT[@]} -eq 0 ]]; then
-    log_warning "No Python files found in $SRC_DIR root directory"
+    log_warning "No files found in $SRC_DIR root directory"
   else
-    log "Found ${#FILES_TO_MOUNT[@]} Python files to mount in root directory"
+    log "Found ${#FILES_TO_MOUNT[@]} files to mount in root directory"
   fi
   
   # Always mount utils directory with --all flag
@@ -145,17 +133,29 @@ gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
     --worker=all \
-    --command="mkdir -p /tmp/dev/src/utils"
+    --command="mkdir -p ${TPU_HOST_PATH}/utils"
 
 # Copy each file to the TPU VM
 if [[ ${#FILES_TO_MOUNT[@]} -gt 0 ]]; then
   log "Copying files to TPU VM..."
   for file in "${FILES_TO_MOUNT[@]}"; do
     log "- Mounting $file"
-    if gcloud compute tpus tpu-vm scp "$SRC_DIR/$file" "$TPU_NAME":/tmp/dev/src/ \
+    if gcloud compute tpus tpu-vm scp "$SRC_DIR/$file" "$TPU_NAME":${TPU_HOST_PATH}/ \
         --zone="$TPU_ZONE" \
         --project="$PROJECT_ID" \
         --worker=all; then
+      
+      # Make shell scripts executable on the TPU VM
+      if [[ "$file" == *.sh ]]; then
+        log "Making $file executable on TPU VM..."
+        gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+          --zone="$TPU_ZONE" \
+          --project="$PROJECT_ID" \
+          --worker=all \
+          --command="chmod +x ${TPU_HOST_PATH}/${file}"
+        log_success "Successfully made $file executable"
+      fi
+      
       log_success "Successfully mounted $file"
     else
       log_warning "Failed to mount $file - continuing with next file"
@@ -167,54 +167,62 @@ fi
 
 # Copy utils directory if requested
 if [[ "$MOUNT_UTILS" == "true" ]]; then
-  if [[ -d "$SRC_DIR/utils" ]]; then
-    log "- Mounting utils directory"
+  # Always try to mount common_logging.sh from src/utils first
+  UTILS_SRC_DIR="$PROJECT_DIR/src/utils"
+  if [[ -d "$UTILS_SRC_DIR" ]]; then
+    log "- Mounting utils from $UTILS_SRC_DIR"
     
-    # Check if there are any files in the utils directory
-    UTILS_FILES=$(find "$SRC_DIR/utils" -type f -name "*.py" | wc -l)
+    # Create a temporary directory for the utils files
+    TEMP_DIR=$(mktemp -d)
     
-    if [[ $UTILS_FILES -eq 0 ]]; then
-      log_warning "Utils directory exists but contains no Python files - creating empty directory"
-      # Just ensure the directory exists on TPU
-      gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    # Copy common_logging.sh from src/utils
+    if [[ -f "$UTILS_SRC_DIR/common_logging.sh" ]]; then
+      log "Copying common_logging.sh from src/utils"
+      cp "$UTILS_SRC_DIR/common_logging.sh" "$TEMP_DIR/"
+    else
+      log_warning "common_logging.sh not found in src/utils"
+    fi
+    
+    # Also copy any additional utils from dev/src/utils if they exist
+    if [[ -d "$SRC_DIR/utils" ]]; then
+      log "Also copying utilities from dev/src/utils"
+      cp -r "$SRC_DIR/utils/"* "$TEMP_DIR/" 2>/dev/null || true
+    fi
+    
+    # Use recursive copy for the utils directory
+    if gcloud compute tpus tpu-vm scp --recurse "$TEMP_DIR/"* "$TPU_NAME":${TPU_HOST_PATH}/utils/ \
+        --zone="$TPU_ZONE" \
+        --project="$PROJECT_ID" \
+        --worker=all; then
+      
+      # Make all shell scripts in utils executable
+      for script in $(find "$TEMP_DIR" -name "*.sh" 2>/dev/null); do
+        script_name=$(basename "$script")
+        log "Making $script_name executable..."
+        gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
           --zone="$TPU_ZONE" \
           --project="$PROJECT_ID" \
           --worker=all \
-          --command="mkdir -p /tmp/dev/src/utils"
+          --command="chmod +x ${TPU_HOST_PATH}/utils/${script_name}"
+      done
+      
+      log_success "Successfully mounted utils directory"
     else
-      log "Found $UTILS_FILES Python files in utils directory"
-      
-      # Create a temporary directory for the utils files
-      TEMP_DIR=$(mktemp -d)
-      
-      # Copy the utils directory to the temporary location
-      cp -r "$SRC_DIR/utils/"* "$TEMP_DIR/" 2>/dev/null || true
-      
-      # Use recursive copy for the utils directory
-      if gcloud compute tpus tpu-vm scp --recurse "$TEMP_DIR/"* "$TPU_NAME":/tmp/dev/src/utils/ \
-          --zone="$TPU_ZONE" \
-          --project="$PROJECT_ID" \
-          --worker=all; then
-        log_success "Successfully mounted utils directory"
-      else
-        log_warning "Failed to mount utils directory"
-      fi
-      
-      # Clean up temporary directory
-      rm -rf "$TEMP_DIR"
+      log_warning "Failed to mount utils directory"
     fi
+    
+    # Clean up temporary directory
+    rm -rf "$TEMP_DIR"
   else
-    log_warning "Utils directory doesn't exist, creating empty directory on TPU"
+    log_warning "Neither src/utils nor dev/src/utils directories exist"
+    # Create an empty utils directory on TPU
     gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
         --zone="$TPU_ZONE" \
         --project="$PROJECT_ID" \
         --worker=all \
-        --command="mkdir -p /tmp/dev/src/utils"
+        --command="mkdir -p ${TPU_HOST_PATH}/utils"
   fi
 fi
-
-# Create info file with mount details
-create_mount_info
 
 # List mounted files for verification
 log "Verifying mounted files on TPU VM..."
@@ -222,7 +230,7 @@ gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
     --worker=all \
-    --command="ls -la /tmp/dev/src/" || log_warning "Failed to list files, but mount process may have succeeded"
+    --command="ls -la ${TPU_HOST_PATH}/" || log_warning "Failed to list files, but mount process may have succeeded"
 
 # If utils was mounted, also check the utils directory
 if [[ "$MOUNT_UTILS" == "true" ]]; then
@@ -231,9 +239,11 @@ if [[ "$MOUNT_UTILS" == "true" ]]; then
       --zone="$TPU_ZONE" \
       --project="$PROJECT_ID" \
       --worker=all \
-      --command="ls -la /tmp/dev/src/utils/" || log_warning "Failed to list utils directory, but mount process may have succeeded"
+      --command="ls -la ${TPU_HOST_PATH}/utils/" || log_warning "Failed to list utils directory, but mount process may have succeeded"
 fi
 
 log_success "Mount process completed successfully."
-log "Files are available in the Docker container when mounted at /app/dev/src"
-log "To run these files, use: ./dev/mgt/run.sh [filename.py]" 
+log "Files are mounted on TPU VM at: ${TPU_HOST_PATH}"
+log "In Docker container, these will be available at: ${DOCKER_CONTAINER_PATH}"
+log "To run Python files, use: ./dev/mgt/run.sh [filename.py]"
+log "To run shell scripts, use: ./dev/mgt/run.sh [filename.sh]" 

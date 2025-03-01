@@ -206,6 +206,76 @@ This is especially useful for:
 - Testing small changes quickly
 - Setting up a development pipeline
 
+## Mounting Code to TPU VMs
+
+Before running any code on the TPU VM, you need to mount the necessary files. The `mount.sh` script handles this:
+
+```bash
+# Mount all files from dev/src, including utils directory
+./dev/mgt/mount.sh --all
+
+# Or mount specific files and the utils directory
+./dev/mgt/mount.sh example.py --utils
+```
+
+The `mount.sh` script copies specified files from your local `dev/src` directory to the TPU VM at `/tmp/dev/src`, making them available for execution in the TPU environment.
+
+## Running Files on TPU VM
+
+The `run.sh` script executes mounted Python files on the TPU VM:
+
+```bash
+# Run a specific file on the TPU VM
+./dev/mgt/run.sh example.py
+
+# Run a file with arguments
+./dev/mgt/run.sh train.py --epochs 10 --batch_size 32
+
+# Run shell commands directly
+./dev/mgt/run.sh --command="ls -la /tmp/dev/src"
+```
+
+## Cleaning Up Resources
+
+The `scrap.sh` script removes files from the TPU VM when you're done:
+
+```bash
+# Remove a specific file
+./dev/mgt/scrap.sh example.py
+
+# Remove everything
+./dev/mgt/scrap.sh --all
+```
+
+## All-in-One Workflow
+
+For convenience, use the `mount_run_scrap.sh` script to handle the complete workflow:
+
+```bash
+# Mount, run, and optionally clean up a file
+./dev/mgt/mount_run_scrap.sh example.py
+
+# Mount, run, and definitely clean up
+./dev/mgt/mount_run_scrap.sh train.py --clean
+```
+
+## TPU Monitoring
+
+For real-time TPU performance monitoring, use the standalone `monitor_tpu.sh` script:
+
+```bash
+# Start monitoring a TPU VM
+./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME
+
+# Monitor a specific Python process on the TPU VM
+./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME PYTHON_PID
+
+# Stop all monitoring
+./dev/mgt/monitor_tpu.sh stop
+```
+
+The monitoring data is saved to the `logs/` directory and can be visualized using TensorBoard or the dashboard utilities.
+
 ## CI/CD Integration
 
 The `dev` folder provides CI/CD capabilities for rapid development and iteration:

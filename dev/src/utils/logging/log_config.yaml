@@ -1,0 +1,72 @@
+# TPU Monitoring System Configuration
+
+# Base configuration
+base_log_dir: logs
+save_interval: 5  # minutes
+bucket_name: ${BUCKET_NAME}
+use_gcs: true
+# Use the TensorBoard directory from .env but allow local subdirectories
+tensorboard_base: ${BUCKET_TENSORBOARD:-gs://infra-tempo-401122-hello-world-bucket/tensorboard-logs/}
+
+# Logging configuration
+logging:
+  log_level: INFO
+  log_to_file: true
+  log_to_console: true
+  log_rotation: 10MB
+  log_dir: logs/app
+
+# TPU monitor configuration
+tpu_monitor:
+  enabled: true
+  sampling_interval: 60  # seconds
+  log_dir: logs/tpu
+  monitor_tpu: true
+  monitor_env: true
+  tb_log_dir: tpu
+
+# Bucket monitor configuration
+bucket_monitor:
+  enabled: true
+  sampling_interval: 60  # seconds
+  log_dir: logs/bucket
+  tb_log_dir: bucket
+  params:
+    file_size_mb: 10
+    interval_minutes: 30  # minutes between transfer tests
+  # Use the BUCKET_DATRAIN directory as the base for test directories
+  test_dir: ${BUCKET_DATRAIN:-gs://infra-tempo-401122-hello-world-bucket/training-data/}test/
+
+# Dashboard configuration
+dashboards:
+  tpu_dashboard:
+    enabled: true
+    tb_log_dir: tpu
+    profile_duration: 30  # seconds
+    profile_interval: 300  # seconds between profiles
+    # TPU Profiles directory (subdirectory of tensorboard_base)
+    profile_dir: tpu_profiles
+  
+  bucket_dashboard:
+    enabled: true
+    tb_log_dir: bucket
+    
+  super_dashboard:
+    enabled: true
+    tb_log_dir: super
+    update_interval: 60  # seconds
+    
+# Google Cloud configuration
+google_cloud:
+  project_id: ${PROJECT_ID}
+  zone: ${TPU_ZONE:-europe-west4-a}
+  region: ${TPU_REGION:-europe-west4}
+  credentials_file: ${SERVICE_ACCOUNT_JSON:-infra-tempo-401122-ae00db03bb34.json}
+
+# Application integration
+webapp:
+  # Simplified export configuration for webapp integration
+  export_format: json
+  export_interval: 300  # seconds
+  metrics_retention: 7  # days
+  enable_realtime_api: true 

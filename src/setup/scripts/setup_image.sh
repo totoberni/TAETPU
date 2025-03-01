@@ -45,7 +45,7 @@ log "Changing to project root directory: $PROJECT_DIR"
 cd "$PROJECT_DIR"
 
 # Build the Docker image
-if docker build -t tpu-hello-world:v1 -f setup/docker/Dockerfile .; then
+if docker build -t tpu-hello-world:v1 -f src/setup/docker/Dockerfile .; then
   log_success "Docker image built successfully"
 else
   log_error "Failed to build Docker image"

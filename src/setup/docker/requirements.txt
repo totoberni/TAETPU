@@ -1,33 +1,43 @@
-# Core PyTorch & TPU
-torch>=2.0.0
-# torch-xla[tpu]>=2.0.0  # Removed as we install it separately in the Dockerfile
 cloud-tpu-client>=0.10
 google-cloud-storage>=2.0.0
 
-# Monitoring & Logging
-tensorboard>=2.13.0
-torch-tb-profiler>=0.4.1
+# Logging
 loguru>=0.7.0
 rich>=13.4.2
-tqdm>=4.65.0
-
-# Experiment Tracking
-wandb>=0.15.5
+psutil>=5.9.5
 
 # Performance Analysis
 py-spy>=0.3.14
-pytorch_memlab>=0.2.4
-psutil>=5.9.5
-google-cloud-monitoring>=2.14.1
 
 # Data Processing
 numpy>=1.24.0
 pandas>=2.0.0
 
-# Visualization & Dashboards
+# TPU & TensorFlow
+tensorflow>=2.15.0
+keras>=2.15.0
+tfrecord>=1.15.0
+tensorflow-cloud>=0.1.10
+tensorflow-addons>=0.20.0
+tensorflow-datasets>=4.9.0
+
+# Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
 
 # Utilities
-pydantic>=2.0.0
-PyYAML>=6.0 
+PyYAML>=6.0
+argparse>=1.4.0
+traceback2>=1.4.0
+
+# JSON and date utilities
+python-dateutil>=2.8.2
+jsonschema>=4.17.3
+
+# Monitoring 
+tensorboard>=2.12.0
+google-cloud-monitoring>=2.14.1
+tpu-profiler>=0.0.1
+
+# Webapp integrations
+python-dotenv>=1.0.1
