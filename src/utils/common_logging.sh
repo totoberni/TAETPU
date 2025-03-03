@@ -213,7 +213,6 @@ function verify_tpu_existence() {
   
   if [[ -n "$tpu_exists" ]]; then
     log_success "TPU VM exists: $TPU_NAME"
-    echo "$tpu_exists"
     return 0
   else
     log_warning "TPU VM does not exist: $TPU_NAME"
@@ -250,7 +249,7 @@ ssh_with_timeout() {
   local timeout_seconds="${2:-30}"
   local ssh_result=0
   
-  log "Executing SSH command (timeout: ${timeout_seconds}s): $cmd"
+  log "Executing SSH command (timeout: ${timeout_seconds}s)"
   timeout "$timeout_seconds" gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" --project="$PROJECT_ID" \
     --command="$cmd" || ssh_result=$?
@@ -272,7 +271,7 @@ ssh_all_with_timeout() {
   local timeout_seconds="${2:-30}"
   local ssh_result=0
   
-  log "Executing SSH command on all workers (timeout: ${timeout_seconds}s): $cmd"
+  log "Executing SSH command on all workers (timeout: ${timeout_seconds}s)"
   timeout "$timeout_seconds" gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" --project="$PROJECT_ID" \
     --worker=all --command="$cmd" || ssh_result=$?

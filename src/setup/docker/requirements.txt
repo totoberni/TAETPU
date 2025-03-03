@@ -17,7 +17,6 @@ numpy~=1.26.0
 pandas>=2.0.0
 
 # TensorFlow & TPU Ecosystem
-tensorflow==2.18.0
 tensorflow-addons==0.23.0
 tfrecord==1.14.5
 

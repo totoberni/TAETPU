@@ -1,33 +1,30 @@
-# Use official TensorFlow image as base
-FROM tensorflow/tensorflow:2.18.0
+# Use Python 3.8 as base
+FROM python:3.8-slim
 
 # Set working directory
 WORKDIR /app
 
-# Set environment variables for TPU support
-ENV PYTHONUNBUFFERED=1 \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install TPU libraries and TensorFlow for TPU
+RUN pip install --no-cache-dir https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/tensorflow/tf-2.18.0/tensorflow-2.18.0-cp38-cp38-linux_x86_64.whl
+RUN curl -L https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/libtpu/1.6.0/libtpu.so -o /lib/libtpu.so
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Set TPU environment variables based on documentation
+ENV TPU_NAME=local \
     PJRT_DEVICE=TPU \
     NEXT_PLUGGABLE_DEVICE_USE_C_API=true \
-    TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so \
-    TPU_NAME=local \
-    TPU_LOAD_LIBRARY=0 \
-    XLA_USE_BF16=1
-
-# Install minimal system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    wget && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install minimal Python dependencies
-RUN pip install --no-cache-dir \
-    pandas \
-    google-cloud-storage \
-    tensorboard
-
-# Create mount points
-RUN mkdir -p /app/code /app/data
+    TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so
 
 # Default command
 CMD ["/bin/bash"]
