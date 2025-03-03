@@ -18,7 +18,7 @@ vim source/.env  # Edit with your project details
 
 # 4. Set up infrastructure
 ./src/setup/scripts/setup_image.sh   # Build Docker image
-./src/setup/scripts/setup_tpu.sh --create  # Create TPU VM
+./src/setup/scripts/setup_tpu.sh     # Create TPU VM
 
 # 5. Verify TPU hardware access
 ./src/utils/verify.sh --check-hardware  # Verify TPU driver and device
@@ -27,6 +27,183 @@ vim source/.env  # Edit with your project details
 # 6. Run example code
 ./dev/mgt/mount_run_scrap.sh example.py
 ```
+
+## Detailed Setup Guide
+
+### 1. Environment Configuration
+
+The first step is to set up your environment variables:
+
+```bash
+# Copy the template file
+cp source/.env.template source/.env
+
+# Edit the file with your specific GCP project details
+vim source/.env
+```
+
+Key environment variables to configure:
+- `PROJECT_ID`: Your Google Cloud project ID
+- `TPU_REGION` and `TPU_ZONE`: Region and zone where your TPU will be created
+- `TPU_NAME`: Name for your TPU VM instance
+- `TPU_TYPE`: TPU hardware type (e.g., v2-8, v3-8)
+- `TPU_VM_VERSION`: TPU software version
+- `BUCKET_NAME`: GCS bucket for storing data and logs
+- `SERVICE_ACCOUNT_JSON`: Path to your service account key file (if using service account auth)
+
+### 2. Environment Verification
+
+Before proceeding, verify your environment configuration:
+
+```bash
+# Basic verification of environment variables
+./src/utils/verify.sh --env-only
+```
+
+This checks that all required variables are set in your `.env` file and displays your current configuration.
+
+For a more comprehensive check that also verifies your GCP infrastructure:
+
+```bash
+# Check GCP project, TPU VM (if exists), GCS bucket, and Docker image
+./src/utils/verify.sh --check-infra
+```
+
+### 3. GCS Bucket Setup
+
+Set up a Google Cloud Storage bucket for storing training data, model checkpoints, and TensorBoard logs:
+
+```bash
+./src/setup/scripts/setup_bucket.sh
+```
+
+This script:
+- Creates a new GCS bucket with the name specified in your `.env` file
+- Sets up appropriate access permissions
+- Creates standard directories for training data and TensorBoard logs
+
+### 4. Infrastructure Setup
+
+#### 4.1 Docker Image Setup
+
+Build a Docker image optimized for TPU development:
+
+```bash
+./src/setup/scripts/setup_image.sh
+```
+
+This script:
+- Creates a Docker image based on TensorFlow 2.18.0
+- Installs required Python dependencies from `src/setup/docker/requirements.txt`
+- Configures TPU environment variables
+- Pushes the image to Google Container Registry (GCR)
+
+Advanced options:
+```bash
+# Build image with TPU driver included (useful for distribution)
+./src/setup/scripts/setup_image.sh --bake-driver
+
+# Build image but don't push to GCR
+./src/setup/scripts/setup_image.sh --no-push
+
+# Force rebuild even if image exists
+./src/setup/scripts/setup_image.sh --force-rebuild
+
+# Use a custom Dockerfile
+./src/setup/scripts/setup_image.sh --dockerfile=/path/to/custom/Dockerfile
+```
+
+#### 4.2 TPU VM Setup
+
+Create and configure a TPU VM instance:
+
+```bash
+./src/setup/scripts/setup_tpu.sh
+```
+
+This script:
+- Creates a new TPU VM with the specified name, type, and version
+- Sets up Docker permissions on the VM
+- Configures authentication for GCR access
+- Sets up TPU environment variables in the VM's `.bashrc`
+- Verifies TPU driver and device accessibility
+- Pulls the Docker image to the VM
+
+The script automatically:
+- Checks if the TPU VM already exists
+- Configures Docker permissions for the user
+- Sets up service account authentication if provided
+- Configures TPU environment variables with sensible defaults
+- Verifies the TPU environment is working correctly
+
+### 5. TPU Hardware Verification
+
+After setting up the TPU VM, verify that the TPU hardware is accessible:
+
+```bash
+# Verify TPU driver and device accessibility
+./src/utils/verify.sh --check-hardware
+```
+
+This performs several checks:
+- Verifies TPU VM exists and is in READY state
+- Checks for TPU driver (libtpu.so) on the VM
+- Verifies TPU device (/dev/accel0) is accessible
+
+For a comprehensive verification including a TensorFlow test:
+
+```bash
+# Run complete verification with TensorFlow test
+./src/utils/verify.sh --full
+```
+
+This additionally:
+- Creates a TensorFlow test script on the VM
+- Runs a simple computation on the TPU
+- Verifies TensorFlow can access and use the TPU
+
+### 6. Running Code on TPU
+
+The repository provides several ways to run your code on the TPU VM:
+
+#### Option 1: Quick Development (One-step)
+
+```bash
+# Mount, run, and clean up in one command
+./dev/mgt/mount_run_scrap.sh your_script.py [script_args]
+```
+
+This:
+- Copies your script to the TPU VM
+- Runs it inside the Docker container with TPU access
+- Removes the script from the VM when done
+
+#### Option 2: Manual Steps
+
+```bash
+# 1. Mount file to TPU VM
+./dev/mgt/mount.sh your_script.py
+
+# 2. Run file on TPU VM
+./dev/mgt/run.sh your_script.py [script_args]
+
+# 3. Clean up when done
+./dev/mgt/scrap.sh your_script.py
+```
+
+This gives you more control over each step of the process.
+
+#### Option 3: Continuous Development
+
+```bash
+# Watch for code changes and sync automatically
+./dev/mgt/synch.sh --watch --utils
+
+# Sync and restart container
+./dev/mgt/synch.sh --restart
+```
+
+This is useful for active development, automatically syncing code changes to the TPU VM.
 
 ## Project Structure
 
@@ -58,68 +235,19 @@ TAETPU/
 │   │       ├── setup_image.sh      # Build and push Docker image
 │   │       ├── setup_tpu.sh        # Create TPU VM
 │   │       └── verify.sh           # Symlink to unified verification
+│   ├── teardown/                   # Resource cleanup scripts
+│   │   ├── teardown_tpu.sh         # Delete TPU VM
+│   │   ├── teardown_image.sh       # Delete Docker images
+│   │   └── teardown_bucket.sh      # Delete GCS bucket
 │
 └── source/                         # Project source and configuration
     ├── .env                        # Environment configuration (created from template)
     └── .env.template               # Template for environment configuration
 ```
 
-## Setup & Configuration
+## TPU Environment Variables
 
-### Prerequisites
-
-- Google Cloud project with TPU API enabled
-- Docker installed on your development machine
-- Google Cloud SDK configured
-
-### Environment Variables
-
-All required environment variables are now automatically verified by the unified verification system:
-
-```bash
-# Run verification with increasing levels of detail
-./src/utils/verify.sh --env-only       # Check environment variables
-./src/utils/verify.sh --check-infra    # Also verify GCP resources
-./src/utils/verify.sh --check-hardware # Also verify TPU hardware access 
-./src/utils/verify.sh --full           # Run complete verification with TensorFlow
-```
-
-### Docker Image Setup
-
-The Docker image setup has been enhanced to use a consistent TPU configuration:
-
-```bash
-# Build standard image (mounts TPU driver at runtime)
-./src/setup/scripts/setup_image.sh
-
-# Build image with TPU driver included (useful for distribution)
-./src/setup/scripts/setup_image.sh --bake-driver
-
-# Build image but don't push to GCR
-./src/setup/scripts/setup_image.sh --no-push
-```
-
-### TPU VM Setup
-
-The TPU VM setup has been enhanced with better verification:
-
-```bash
-# Create a new TPU VM
-./src/setup/scripts/setup_tpu.sh --create
-
-# Force recreate an existing TPU VM
-./src/setup/scripts/setup_tpu.sh --force-recreate
-
-# Create TPU VM and skip hardware verification
-./src/setup/scripts/setup_tpu.sh --create --skip-verify
-
-# Create TPU VM and set up monitoring
-./src/setup/scripts/setup_tpu.sh --create --setup-monitoring
-```
-
-### TPU Environment Variables
-
-The system now ensures TPU environment variables are consistently set with sensible defaults:
+The system ensures TPU environment variables are consistently set with sensible defaults:
 
 | Variable | Purpose | Default Value |
 |----------|---------|-------|
@@ -130,49 +258,10 @@ The system now ensures TPU environment variables are consistently set with sensi
 | `NEXT_PLUGGABLE_DEVICE_USE_C_API` | Enables C API for PJRT | `true` |
 | `XLA_USE_BF16` | Enables BF16 precision | `1` |
 
-## Development Workflow
-
-### Option 1: Quick Development (One-step)
-
-```bash
-# Mount, run, and clean up in one command
-./dev/mgt/mount_run_scrap.sh your_script.py [script_args]
-```
-
-### Option 2: Manual Steps
-
-```bash
-# 1. Mount file to TPU VM
-./dev/mgt/mount.sh your_script.py
-
-# 2. Run file on TPU VM
-./dev/mgt/run.sh your_script.py [script_args]
-
-# 3. Clean up when done
-./dev/mgt/scrap.sh your_script.py
-```
-
-### Option 3: Continuous Development
-
-```bash
-# Watch for code changes and sync automatically
-./dev/mgt/synch.sh --watch --utils
-
-# Sync and restart container
-./dev/mgt/synch.sh --restart
-```
-
-### Verification of TPU Access
-
-The unified verification system makes it easier to validate your TPU environment:
-
-```bash
-# Quick verification
-./src/utils/verify.sh --check-hardware
-
-# Comprehensive verification including TensorFlow test
-./src/utils/verify.sh --full
-```
+These variables are automatically set in:
+- The Docker container environment
+- The TPU VM's `.bashrc` file
+- The Docker run command when executing scripts
 
 ## TensorFlow TPU Best Practices
 
@@ -247,13 +336,23 @@ The unified verification system provides detailed diagnostics for common issues:
 
 ## Clean Up Resources
 
+When you're done with your experiments, clean up your resources to avoid unnecessary charges:
+
 ```bash
 # Delete TPU VM
 ./src/teardown/teardown_tpu.sh
 
 # Delete Docker images
 ./src/teardown/teardown_image.sh
+
+# Delete GCS bucket (use with caution - deletes all data)
+./src/teardown/teardown_bucket.sh
 ```
+
+The teardown scripts:
+- Prompt for confirmation before deleting resources
+- Check if resources exist before attempting deletion
+- Provide detailed output of the deletion process
 
 ## Project Purpose
 
