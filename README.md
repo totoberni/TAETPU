@@ -1,6 +1,6 @@
 # TPU Development Environment
 
-This repository provides scripts and tools for setting up and managing Cloud TPU resources for TensorFlow development. The system includes scripts for creating TPU VMs, building Docker images with TPU support, and setting up Google Cloud Storage buckets.
+This repository provides scripts and tools for setting up and managing Cloud TPU resources for TensorFlow development. The system includes scripts for creating TPU VMs, building Docker images with TPU support, setting up Google Cloud Storage buckets, and comprehensive monitoring tools.
 
 ## Prerequisites
 
@@ -31,11 +31,26 @@ project-root/
 │   │   │   └── setup_tpu.sh          # Create and configure TPU VM
 │   ├── utils/
 │   │   ├── common_logging.sh     # Shared logging and utility functions
-│   │   └── verify.sh             # Resource verification tools
+│   │   ├── verify.sh             # Resource verification tools
+│   │   └── monitors/             # Monitoring modules
 │   └── teardown/
 │       ├── teardown_bucket.sh    # Delete GCS bucket
 │       ├── teardown_image.sh     # Remove Docker image
 │       └── teardown_tpu.sh       # Delete TPU VM
+├── dev/
+│   ├── mgt/                      # Management utilities
+│   │   ├── mount.sh              # Mount files to TPU VM
+│   │   ├── run.sh                # Run code on TPU VM
+│   │   ├── scrap.sh              # Clean up files from TPU VM
+│   │   ├── synch.sh              # Synchronize code with TPU VM
+│   │   └── mount_run_scrap.sh    # Combined mounting, running, and cleanup
+│   ├── src/
+│       ├── example.py            # Example TPU application
+│       ├── start_monitoring.py   # Monitoring system entry point
+│       └── utils/
+│           ├── monitors/         # TPU and bucket monitoring modules
+│           ├── logging/          # Logging utilities
+│           └── backend/          # TensorBoard backend components
 ```
 
 ## Configuration
@@ -69,15 +84,61 @@ project-root/
    SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
    ```
 
-3. Find the appropriate TPU zone and VM version:
-   ```bash
-   ./src/setup/scripts/check_zones.sh
-   ./src/setup/scripts/check_vm_versions.sh
-   ```
+## Pre-Deployment Checks
+
+Before setting up resources, verify TPU availability and compatibility with these helper scripts:
+
+### 1. Check TPU Zone Availability
+
+Determine TPU availability in your selected region:
+
+```bash
+./src/setup/scripts/check_zones.sh
+```
+
+This script:
+- Lists all zones in your configured region
+- Checks each zone for your specified TPU type
+- Updates your `.env` file with the optimal zone
+
+### 2. Check TPU VM Version Compatibility
+
+Find compatible TPU VM versions for your TensorFlow version:
+
+```bash
+./src/setup/scripts/check_vm_versions.sh
+```
+
+This script:
+- Retrieves available TPU VM versions for your zone
+- Identifies versions compatible with your TensorFlow version and TPU type
+- Updates your `.env` file with the optimal VM version
 
 ## Setup Process
 
-### 1. Create a TPU VM
+### 1. Create a GCS Bucket
+
+```bash
+./src/setup/scripts/setup_bucket.sh
+```
+
+This script:
+- Creates a GCS bucket for storing training data and logs
+- Sets up directories for training data and TensorBoard logs according to your `.env` configuration
+- Configures appropriate permissions
+
+### 2. Build and Push Docker Image
+
+```bash
+./src/setup/scripts/setup_image.sh
+```
+
+This script:
+- Uses the Dockerfile in `src/setup/docker/` to build a container image with TensorFlow and TPU support
+- Tags the image with your project ID
+- Pushes it to Google Container Registry for use on your TPU VM
+
+### 3. Create a TPU VM
 
 ```bash
 ./src/setup/scripts/setup_tpu.sh
@@ -88,26 +149,6 @@ This script:
 - Sets up Docker permissions on the VM
 - Configures service account authentication (if specified)
 - Sets TPU environment variables
-
-### 2. Build and Push Docker Image
-
-```bash
-./src/setup/scripts/setup_image.sh
-```
-
-This script:
-- Uses the Dockerfile in `src/setup/docker/` to build a container image
-- Tags the image with your project ID and pushes it to Google Container Registry
-
-### 3. Create GCS Bucket
-
-```bash
-./src/setup/scripts/setup_bucket.sh
-```
-
-This script:
-- Creates a GCS bucket for storing training data and logs
-- Sets up directories for training data and TensorBoard logs
 
 ## Verification
 
@@ -124,56 +165,154 @@ After setup, verify your resources with the verification tool:
 ./src/utils/verify.sh --bucket # Verify GCS bucket configuration
 ```
 
-## Using the TPU VM
+## Code Management
 
-### Connecting to the TPU VM
+The `dev/mgt` directory provides utilities for managing code on your TPU VM:
 
-```bash
-gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${TPU_ZONE} --project=${PROJECT_ID}
-```
+### Mounting Files
 
-### Running Containers with TPU Access
+Mount files from your local `dev/src` directory to the TPU VM:
 
 ```bash
-docker run --rm --privileged \
-  --device=/dev/accel0 \
-  -e PJRT_DEVICE=TPU \
-  -e XLA_USE_BF16=1 \
-  -e TPU_NAME=local \
-  -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \
-  -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so \
-  -v /lib/libtpu.so:/lib/libtpu.so \
-  -v /path/to/your/code:/app/code \
-  gcr.io/${PROJECT_ID}/tpu-hello-world:v1 \
-  python /app/code/your_script.py
+# Mount specific files
+./dev/mgt/mount.sh example.py
+
+# Mount multiple files
+./dev/mgt/mount.sh example.py utils/helper.py
+
+# Mount all files in dev/src
+./dev/mgt/mount.sh --all
+
+# Mount just the utils directory
+./dev/mgt/mount.sh --utils
 ```
 
-### Running a Simple TPU Test
+### Running Code on TPU VM
 
-To confirm TensorFlow can access the TPU, run:
+Execute Python or shell script files on the TPU VM:
 
-```python
-import tensorflow as tf
+```bash
+# Run a Python file
+./dev/mgt/run.sh example.py
 
-# Check available TPU cores
-tpu_cores = tf.config.list_logical_devices('TPU')
-print(f"TensorFlow can access {len(tpu_cores)} TPU cores")
+# Run a shell script
+./dev/mgt/run.sh run_example.sh
 
-# Run a simple computation
-@tf.function
-def add_fn(x, y):
-    return x + y
+# Run with arguments
+./dev/mgt/run.sh example.py --epochs 10
 
-resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
-tf.config.experimental_connect_to_cluster(resolver)
-tf.tpu.experimental.initialize_tpu_system(resolver)
-strategy = tf.distribute.TPUStrategy(resolver)
-
-x = tf.constant(1.0)
-y = tf.constant(1.0)
-result = strategy.run(add_fn, args=(x, y))
-print(result)
+# Verify TPU hardware access
+./dev/mgt/run.sh --verify
 ```
+
+### Synchronizing Code Changes
+
+Continuously synchronize code changes to the TPU VM:
+
+```bash
+# One-time synchronization of all Python files
+./dev/mgt/synch.sh
+
+# Watch for changes and sync automatically
+./dev/mgt/synch.sh --watch
+
+# Sync and restart container automatically
+./dev/mgt/synch.sh --watch --restart
+
+# Sync specific files only
+./dev/mgt/synch.sh --specific model.py train.py
+```
+
+### Clean Up Files
+
+Remove files from the TPU VM when no longer needed:
+
+```bash
+# Remove specific files
+./dev/mgt/scrap.sh example.py
+
+# Remove all files
+./dev/mgt/scrap.sh --all
+```
+
+### Combined Operations
+
+Mount, run, and optionally clean up files in a single operation:
+
+```bash
+# Mount, run, and keep files
+./dev/mgt/mount_run_scrap.sh example.py
+
+# Mount, run with arguments, and clean up
+./dev/mgt/mount_run_scrap.sh --clean example.py --epochs 10
+```
+
+## Resource Monitoring
+
+The system includes comprehensive monitoring tools for TPU VMs and GCS buckets:
+
+### Starting Monitoring
+
+```bash
+# Start monitoring system
+python dev/src/start_monitoring.py start
+
+# With custom configuration
+python dev/src/start_monitoring.py start --log-dir logs --interval 30 --bucket your-bucket-name
+```
+
+This:
+- Starts TPU hardware monitoring (CPU, memory, TPU utilization)
+- Monitors GCS bucket usage and transfer rates
+- Collects metrics for TensorBoard visualization
+
+### Running Example with Monitoring
+
+```bash
+# Run example with monitoring
+./dev/src/run_example.sh --bucket your-bucket-name --matrix-size 5000
+```
+
+This script:
+- Starts monitoring in the background
+- Runs an example TPU workload
+- Collects metrics during execution
+- Generates a report after completion
+
+### Generating Reports
+
+```bash
+# Generate monitoring report
+python dev/src/start_monitoring.py report --output-dir logs/reports
+```
+
+## TensorBoard Integration
+
+The system includes a complete TensorBoard integration with a backend API:
+
+### Setting Up TensorBoard Backend
+
+```bash
+# Set up TensorBoard backend
+./dev/src/utils/backend/tensorboard/setup_backend.sh
+```
+
+This script:
+- Builds a Docker image for TensorBoard
+- Sets up a service account with appropriate permissions
+- Deploys TensorBoard to Cloud Run (optional)
+
+### Starting TensorBoard API Server
+
+```bash
+# Start TensorBoard API server
+python dev/src/start_webapp.py --port 5000
+```
+
+This:
+- Starts a REST API server for accessing monitoring data
+- Provides endpoints for querying TPU metrics
+- Allows integration with custom dashboards
 
 ## Teardown Process
 
