@@ -4,7 +4,7 @@ FROM tensorflow/tensorflow:2.18.0
 # Set working directory
 WORKDIR /app
 
-# Set environment variables for TPU support (these can be overridden via .env)
+# Set environment variables for TPU support (default values)
 ENV TF_CPP_MIN_LOG_LEVEL=0 \
     PYTHONUNBUFFERED=1 \
     LD_LIBRARY_PATH=/usr/local/lib \

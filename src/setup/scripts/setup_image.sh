@@ -72,7 +72,16 @@ else
   exit 1
 fi
 
-check_env_vars "PROJECT_ID" "TF_VERSION" "TPU_VM_VERSION" || exit 1
+# Ensure all required variables are set
+check_env_vars "PROJECT_ID" "TF_VERSION" "TPU_VM_VERSION" "TPU_REGION" "TPU_ZONE" || exit 1
+
+# Get additional variables with defaults if not set
+TPU_DEBUG="${TPU_DEBUG:-false}"
+BUCKET_REGION="${BUCKET_REGION:-$TPU_REGION}"
+
+# Log all relevant configuration
+display_config "PROJECT_ID" "TF_VERSION" "TPU_VM_VERSION" "TPU_REGION" "TPU_ZONE" "BUCKET_REGION" "TPU_DEBUG"
+
 setup_auth
 
 IMAGE_NAME="gcr.io/${PROJECT_ID}/tpu-hello-world"
@@ -95,7 +104,7 @@ log "Building Docker image: $FULL_IMAGE_NAME"
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-# Copy requirements file and entrypoint script into build directory
+# Copy requirements file and entrypoint script into build directory.
 cp "$PROJECT_DIR/src/setup/docker/requirements.txt" "$BUILD_DIR/"
 cp "$PROJECT_DIR/src/setup/docker/entrypoint.sh" "$BUILD_DIR/"
 
@@ -123,16 +132,17 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy the baked TPU driver
-COPY libtpu.so \${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
+COPY libtpu.so ${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
 
 # Set TPU environment variables
 ENV PJRT_DEVICE=TPU
 ENV NEXT_PLUGGABLE_DEVICE_USE_C_API=true
-ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
+ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
 ENV TPU_NAME=local
 ENV TPU_LOAD_LIBRARY=0
 ENV XLA_USE_BF16=1
 ENV PYTHONUNBUFFERED=1
+ENV TPU_DEBUG=${TPU_DEBUG}
 
 # Copy entrypoint script
 COPY entrypoint.sh /app/
@@ -160,11 +170,12 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # Set TPU environment variables
 ENV PJRT_DEVICE=TPU
 ENV NEXT_PLUGGABLE_DEVICE_USE_C_API=true
-ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
+ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
 ENV TPU_NAME=local
 ENV TPU_LOAD_LIBRARY=0
 ENV XLA_USE_BF16=1
 ENV PYTHONUNBUFFERED=1
+ENV TPU_DEBUG=${TPU_DEBUG}
 
 # Copy entrypoint script
 COPY entrypoint.sh /app/
@@ -197,10 +208,13 @@ fi
 
 log_success "Docker image setup complete: $FULL_IMAGE_NAME"
 if [[ "$BAKE_TPU_DRIVER" == "true" ]]; then
-  log "Image includes baked-in TPU driver at \${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}"
+  log "Image includes baked-in TPU driver at ${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}"
 else
   log "Image requires TPU driver to be mounted at runtime from the host"
 fi
+
+# Generate Docker command example with proper privileges and mounts
+TPU_DRIVER_PATH="${TF_PLUGGABLE_DEVICE_LIBRARY_PATH:-/lib/libtpu.so}"
 
 log "Example Docker command for TPU usage:"
 echo "docker run --rm --privileged \\
@@ -208,8 +222,10 @@ echo "docker run --rm --privileged \\
   -e PJRT_DEVICE=TPU \\
   -e XLA_USE_BF16=1 \\
   -e TPU_NAME=local \\
-  -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH} \\
-  -v \${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}:\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH} \\
+  -e TPU_DEBUG=${TPU_DEBUG} \\
+  -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TPU_DRIVER_PATH} \\
+  -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \\
+  -v ${TPU_DRIVER_PATH}:${TPU_DRIVER_PATH} \\
   -v /path/to/your/code:/app/code \\
   $FULL_IMAGE_NAME \\
   python /app/code/your_script.py"
