@@ -1,4 +1,7 @@
 #!/bin/bash
+# This script creates the TPU VM, sets up Docker permissions,
+# configures the TPU environment on the VM, and pulls the Docker image.
+# It now relies on the container’s entrypoint to perform TPU environment configuration.
 
 # --- Get script directory for absolute path references ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -10,10 +13,10 @@ source "$PROJECT_DIR/src/utils/common_logging.sh"
 init_script 'TPU Setup'
 ENV_FILE="$PROJECT_DIR/source/.env"
 
-# --- VERIFY ENVIRONMENT VARIABLES ---
+# --- Verify environment variables ---
 log "Verifying environment variables..."
 "$PROJECT_DIR/src/utils/verify.sh" --env-only || {
-  log_error "Environment verification failed. Please fix the issues before proceeding."
+  log_error "Environment verification failed. Fix the issues before proceeding."
   exit 1
 }
 
@@ -32,13 +35,13 @@ display_config "PROJECT_ID" "TPU_ZONE" "TPU_TYPE" "TPU_NAME" "TPU_VM_VERSION"
 
 setup_auth
 
-log 'Configuring Google Cloud project and zone...'
+log "Configuring Google Cloud project and zone..."
 gcloud config set project "$PROJECT_ID"
 gcloud config set compute/zone "$TPU_ZONE"
 log "Project and zone configured: $PROJECT_ID in $TPU_ZONE"
 
 log "Checking if TPU VM exists: $TPU_NAME"
-if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" &> /dev/null; then
+if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" &>/dev/null; then
   log_success "TPU VM exists: $TPU_NAME. Skipping creation."
 else
   log "Creating TPU VM with name: $TPU_NAME, type: $TPU_TYPE, version: $TPU_VM_VERSION..."
@@ -59,12 +62,10 @@ else
 fi
 
 log "Setting up Docker permissions on TPU VM..."
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID" \
-    --command="sudo usermod -aG docker \$USER && echo 'Docker permissions configured. Reconnect for changes to take effect.'" || {
-      log_warning "Failed to set up Docker permissions. Do this manually if needed."
-    }
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" \
+  --command="sudo usermod -aG docker \$USER && echo 'Docker permissions configured. Reconnect for changes to take effect.'" || {
+    log_warning "Failed to set up Docker permissions. Please configure them manually if needed."
+}
 
 if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
   log "Copying service account key to TPU VM and configuring authentication..."
@@ -87,21 +88,19 @@ else
   }
 fi
 
-# --- Merge entrypoint.sh logic into setup_tpu.sh ---
+# --- Configure TPU environment on the VM ---
 log_section "Configuring TPU Environment on VM"
-# Set recommended TPU environment variables on the VM.
-# This block replicates the logic previously in entrypoint.sh.
 VM_SETUP_SCRIPT=$(mktemp)
 cat > "$VM_SETUP_SCRIPT" << 'EOF'
 #!/bin/bash
 echo "=== Configuring TPU Environment on VM ==="
-# Set default TPU environment variables.
-export TPU_NAME=${TPU_NAME:-local}
-export TPU_LOAD_LIBRARY=${TPU_LOAD_LIBRARY:-0}
-export PJRT_DEVICE=${PJRT_DEVICE:-TPU}
-export XLA_USE_BF16=${XLA_USE_BF16:-1}
-export NEXT_PLUGGABLE_DEVICE_USE_C_API=${NEXT_PLUGGABLE_DEVICE_USE_C_API:-true}
-export TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TF_PLUGGABLE_DEVICE_LIBRARY_PATH:-/lib/libtpu.so}
+# Set recommended TPU environment variables.
+export TPU_NAME=local
+export TPU_LOAD_LIBRARY=0
+export PJRT_DEVICE=TPU
+export XLA_USE_BF16=1
+export NEXT_PLUGGABLE_DEVICE_USE_C_API=true
+export TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so
 
 echo "TPU Environment Configuration:"
 echo "  TPU_NAME=$TPU_NAME"
@@ -111,9 +110,9 @@ echo "  XLA_USE_BF16=$XLA_USE_BF16"
 echo "  NEXT_PLUGGABLE_DEVICE_USE_C_API=$NEXT_PLUGGABLE_DEVICE_USE_C_API"
 echo "  TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TF_PLUGGABLE_DEVICE_LIBRARY_PATH"
 
-# Check for TPU driver.
+# Verify TPU driver file
 if [[ ! -f "$TF_PLUGGABLE_DEVICE_LIBRARY_PATH" ]]; then
-  echo "WARNING: TPU driver not found at $TF_PLUGGABLE_DEVICE_LIBRARY_PATH, searching..."
+  echo "WARNING: TPU driver not found at $TF_PLUGGABLE_DEVICE_LIBRARY_PATH. Searching..."
   for loc in /lib/libtpu.so /usr/lib/libtpu.so /usr/local/lib/libtpu.so; do
     if [[ -f "$loc" ]]; then
       echo "Found TPU driver at $loc"
@@ -123,17 +122,18 @@ if [[ ! -f "$TF_PLUGGABLE_DEVICE_LIBRARY_PATH" ]]; then
   done
   if [[ ! -f "$TF_PLUGGABLE_DEVICE_LIBRARY_PATH" ]]; then
     echo "ERROR: TPU driver (libtpu.so) not found"
+    exit 1
   fi
 fi
 
-# Check for TPU device.
+# Check for TPU device
 if [[ ! -e "/dev/accel0" ]]; then
-  echo "WARNING: TPU device (/dev/accel0) not found. Make sure the container runs with --privileged and --device=/dev/accel0"
+  echo "WARNING: TPU device (/dev/accel0) not found. Ensure the container runs with --privileged and --device=/dev/accel0"
 else
   echo "TPU device (/dev/accel0) is available"
 fi
 
-# Update .bashrc with TPU environment variables if not already done.
+# Update .bashrc with TPU environment variables if not already set.
 BASHRC_FILE="$HOME/.bashrc"
 if [[ -f "$BASHRC_FILE" ]]; then
   cp "$BASHRC_FILE" "${BASHRC_FILE}.bak"
@@ -174,16 +174,7 @@ gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJEC
   }
 rm "$VM_SETUP_SCRIPT"
 
-# --- Verify TPU Environment ---
-if [[ "$SKIP_VERIFICATION" == "false" ]]; then
-  log_section "Verifying TPU Environment"
-  source "$PROJECT_DIR/src/utils/verify.sh"
-  verify_tpu_environment "$TPU_NAME" "$TPU_ZONE" "$PROJECT_ID" || exit 1
-else
-  log "Skipping TPU environment verification"
-fi
-
-# --- Setup Docker and Pull Image ---
+# --- Setup Docker and pull image ---
 if [[ "$SKIP_DOCKER_SETUP" == "false" ]]; then
   log_section "Setting up Docker and Pulling Image"
   log "Checking if Docker image exists: gcr.io/$PROJECT_ID/tpu-hello-world:v1"
@@ -197,7 +188,7 @@ if [[ "$SKIP_DOCKER_SETUP" == "false" ]]; then
         log_warning "Failed to pull Docker image on TPU VM"
       }
   fi
-  log "Example Docker command for TPU usage:"
+  log "Example Docker command for running your mounted code on TPU:"
   DOCKER_CMD=$(get_docker_cmd "gcr.io/$PROJECT_ID/tpu-hello-world:v1" "python3 /app/code/your_script.py" "/lib/libtpu.so")
   log "$DOCKER_CMD"
 else

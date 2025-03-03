@@ -1,13 +1,14 @@
 #!/bin/bash
+# This script builds (and optionally pushes) the Docker image for TPU development.
 
-# --- DETERMINE SCRIPT AND PROJECT DIRECTORIES ---
+# --- Determine directories ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$( cd "$SCRIPT_DIR/../../.." && pwd )"
 
-# --- IMPORT COMMON FUNCTIONS ---
+# --- Import common functions ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
-# --- SCRIPT VARIABLES ---
+# --- Script variables ---
 ENV_FILE="$PROJECT_DIR/source/.env"
 DOCKERFILE="$PROJECT_DIR/src/setup/docker/Dockerfile"
 BAKE_TPU_DRIVER=false
@@ -15,7 +16,7 @@ FORCE_REBUILD=false
 PUSH_IMAGE=true
 CUSTOM_DOCKERFILE=""
 
-# --- DISPLAY USAGE INFORMATION ---
+# --- Display usage ---
 function show_usage() {
   echo "Usage: $0 [options]"
   echo ""
@@ -30,38 +31,32 @@ function show_usage() {
   exit 1
 }
 
-# --- PARSE COMMAND LINE ARGUMENTS ---
+# --- Parse command line arguments ---
 while [[ $# -gt 0 ]]; do
   case $1 in
     --bake-driver)
       BAKE_TPU_DRIVER=true
-      shift
-      ;;
+      shift ;;
     --no-push)
       PUSH_IMAGE=false
-      shift
-      ;;
+      shift ;;
     --force-rebuild)
       FORCE_REBUILD=true
-      shift
-      ;;
+      shift ;;
     --dockerfile=*)
       CUSTOM_DOCKERFILE="${1#*=}"
-      shift
-      ;;
+      shift ;;
     -h|--help)
-      show_usage
-      ;;
+      show_usage ;;
     *)
       log_error "Unknown option: $1"
-      show_usage
-      ;;
+      show_usage ;;
   esac
 done
 
 init_script "TPU Docker Image Builder"
 
-# --- VERIFY ENVIRONMENT VARIABLES ---
+# --- Verify and load environment variables ---
 log "Verifying environment variables..."
 "$PROJECT_DIR/src/utils/verify.sh" --env-only || {
   log_error "Environment verification failed. Please fix the issues before proceeding."
@@ -78,7 +73,6 @@ else
 fi
 
 check_env_vars "PROJECT_ID" "TF_VERSION" "TPU_VM_VERSION" || exit 1
-
 setup_auth
 
 IMAGE_NAME="gcr.io/${PROJECT_ID}/tpu-hello-world"
@@ -89,7 +83,7 @@ if [[ "$FORCE_REBUILD" == "false" ]]; then
   log "Checking if image already exists in GCR..."
   if gcloud container images describe "$FULL_IMAGE_NAME" &>/dev/null; then
     log_success "Image $FULL_IMAGE_NAME already exists in GCR"
-    read -p "Do you want to rebuild anyway? (y/n): " rebuild
+    read -p "Rebuild anyway? (y/n): " rebuild
     if [[ "$rebuild" != "y" && "$rebuild" != "Y" ]]; then
       log "Skipping image build. Using existing image: $FULL_IMAGE_NAME"
       exit 0
@@ -98,12 +92,12 @@ if [[ "$FORCE_REBUILD" == "false" ]]; then
 fi
 
 log "Building Docker image: $FULL_IMAGE_NAME"
-
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-# Copy common files to build directory.
+# Copy requirements file and entrypoint script into build directory
 cp "$PROJECT_DIR/src/setup/docker/requirements.txt" "$BUILD_DIR/"
+cp "$PROJECT_DIR/src/setup/docker/entrypoint.sh" "$BUILD_DIR/"
 
 if [[ "$BAKE_TPU_DRIVER" == "true" ]]; then
   log "Baking TPU driver into image..."
@@ -129,18 +123,22 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy the baked TPU driver
-COPY libtpu.so ${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
+COPY libtpu.so \${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
 
 # Set TPU environment variables
 ENV PJRT_DEVICE=TPU
 ENV NEXT_PLUGGABLE_DEVICE_USE_C_API=true
-ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
+ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
 ENV TPU_NAME=local
 ENV TPU_LOAD_LIBRARY=0
 ENV XLA_USE_BF16=1
 ENV PYTHONUNBUFFERED=1
 
-# Default command
+# Copy entrypoint script
+COPY entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/bin/bash"]
 EOF
   log_success "Created Dockerfile with baked TPU driver"
@@ -162,13 +160,17 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # Set TPU environment variables
 ENV PJRT_DEVICE=TPU
 ENV NEXT_PLUGGABLE_DEVICE_USE_C_API=true
-ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
+ENV TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}
 ENV TPU_NAME=local
 ENV TPU_LOAD_LIBRARY=0
 ENV XLA_USE_BF16=1
 ENV PYTHONUNBUFFERED=1
 
-# Default command
+# Copy entrypoint script
+COPY entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/bin/bash"]
 EOF
   fi
@@ -195,31 +197,19 @@ fi
 
 log_success "Docker image setup complete: $FULL_IMAGE_NAME"
 if [[ "$BAKE_TPU_DRIVER" == "true" ]]; then
-  log "Image includes baked-in TPU driver at ${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}"
+  log "Image includes baked-in TPU driver at \${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}"
 else
   log "Image requires TPU driver to be mounted at runtime from the host"
 fi
 
-log "To use this image on your TPU VM, for example:"
-if [[ "$BAKE_TPU_DRIVER" == "true" ]]; then
-  echo "docker run --rm --privileged \\
-    --device=/dev/accel0 \\
-    -e PJRT_DEVICE=TPU \\
-    -e XLA_USE_BF16=1 \\
-    -e TPU_NAME=local \\
-    -v /path/to/your/code:/app/code \\
-    $FULL_IMAGE_NAME \\
-    python /app/code/your_script.py"
-else
-  echo "docker run --rm --privileged \\
-    --device=/dev/accel0 \\
-    -e PJRT_DEVICE=TPU \\
-    -e XLA_USE_BF16=1 \\
-    -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=${TF_PLUGGABLE_DEVICE_LIBRARY_PATH} \\
-    -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \\
-    -e TPU_NAME=local \\
-    -v ${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}:${TF_PLUGGABLE_DEVICE_LIBRARY_PATH} \\
-    -v /path/to/your/code:/app/code \\
-    $FULL_IMAGE_NAME \\
-    python /app/code/your_script.py"
-fi
+log "Example Docker command for TPU usage:"
+echo "docker run --rm --privileged \\
+  --device=/dev/accel0 \\
+  -e PJRT_DEVICE=TPU \\
+  -e XLA_USE_BF16=1 \\
+  -e TPU_NAME=local \\
+  -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH} \\
+  -v \${TF_PLUGGABLE_DEVICE_LIBRARY_PATH}:\${TF_PLUGGABLE_DEVICE_LIBRARY_PATH} \\
+  -v /path/to/your/code:/app/code \\
+  $FULL_IMAGE_NAME \\
+  python /app/code/your_script.py"

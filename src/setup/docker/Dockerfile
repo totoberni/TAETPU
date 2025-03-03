@@ -4,7 +4,7 @@ FROM tensorflow/tensorflow:2.18.0
 # Set working directory
 WORKDIR /app
 
-# Set environment variables for TPU support
+# Set environment variables for TPU support (these can be overridden via .env)
 ENV TF_CPP_MIN_LOG_LEVEL=0 \
     PYTHONUNBUFFERED=1 \
     LD_LIBRARY_PATH=/usr/local/lib \
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file and install dependencies (skip tensorflow since it's provided)
+# Copy and install Python dependencies (skip tensorflow since it's in the base image)
 COPY src/setup/docker/requirements.txt /tmp/
 RUN grep -v "^tensorflow==" /tmp/requirements.txt > /tmp/requirements_filtered.txt && \
     pip install --no-cache-dir -r /tmp/requirements_filtered.txt
@@ -46,5 +46,12 @@ RUN pip install --no-cache-dir \
 # Create directories for mounting code and data
 RUN mkdir -p /app/code /app/data /app/dev/src
 
-# Default command: launch a shell
+# Copy the entrypoint script into the image
+COPY src/setup/docker/entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh
+
+# Set the entrypoint so that the container automatically configures the TPU environment
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Default command (opens a shell)
 CMD ["/bin/bash"]
