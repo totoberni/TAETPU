@@ -1,5 +1,5 @@
-# Use Python 3.8 as base (TPU support is better established for 3.8)
-FROM python:3.8-slim
+# Use the official TensorFlow Docker image as base
+FROM tensorflow/tensorflow:latest
 
 # Set working directory
 WORKDIR /app
@@ -12,9 +12,6 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     wget \
     && rm -rf /var/lib/apt/lists/*
-
-# Install standard TensorFlow - we'll use the wheel that's known to work with TPUs
-RUN pip install --no-cache-dir tensorflow==2.18.0
 
 # Download the TPU driver library directly from Google Cloud Storage
 # This is the official method recommended by Google

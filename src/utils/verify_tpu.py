@@ -35,69 +35,58 @@ def main():
     # Check for TPU devices
     print("\nDetecting TPU devices...")
     try:
+        physical_devices = tf.config.list_physical_devices()
+        print(f"Available physical devices: {[device.name for device in physical_devices]}")
+        
         tpu_devices = tf.config.list_logical_devices('TPU')
         if len(tpu_devices) > 0:
-            print(f"  ✓ Found {len(tpu_devices)} TPU devices")
+            print(f"  ✓ Found {len(tpu_devices)} TPU logical devices")
             for i, device in enumerate(tpu_devices):
                 print(f"    - TPU {i}: {device}")
+                
+            # Try to use the TPU resolver (newer TF versions)
+            try:
+                print("\nInitializing TPU system...")
+                resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
+                tf.config.experimental_connect_to_cluster(resolver)
+                tf.tpu.experimental.initialize_tpu_system(resolver)
+                print("  ✓ TPU system initialized successfully")
+                
+                tpu_strategy = tf.distribute.TPUStrategy(resolver)
+                print(f"  ✓ TPU strategy created with {tpu_strategy.num_replicas_in_sync} replicas")
+                
+                # Run a simple computation on the TPU
+                print("\nRunning simple computation on TPU...")
+                
+                @tf.function
+                def simple_computation():
+                    # Create a random matrix and compute its square
+                    x = tf.random.normal([1000, 1000])
+                    return tf.matmul(x, x)
+                
+                # Use the TPU strategy to run the computation
+                with tpu_strategy.scope():
+                    start_time = time.time()
+                    result = tpu_strategy.run(simple_computation)
+                    end_time = time.time()
+                
+                print(f"  ✓ Computation completed in {end_time - start_time:.4f} seconds")
+                print(f"  ✓ Result shape: {result.shape}")
+                print("\nTPU verification completed successfully!")
+                
+                return True
+                
+            except Exception as e:
+                print(f"  ✗ Error initializing TPU system: {str(e)}")
         else:
             print("  ✗ No TPU devices found!")
             sys.exit(1)
     except Exception as e:
         print(f"  ✗ Error detecting TPU devices: {str(e)}")
         sys.exit(1)
-    
-    # Safely initialize TPU system
-    print("\nInitializing TPU system...")
-    try:
-        resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
-        print(f"  ✓ TPU Cluster Resolver: {resolver.cluster_spec()}")
         
-        print("  - Connecting to TPU cluster...")
-        tf.config.experimental_connect_to_cluster(resolver)
-        
-        print("  - Initializing TPU system...")
-        tf.tpu.experimental.initialize_tpu_system(resolver)
-        
-        print("  ✓ TPU system initialized successfully")
-    except Exception as e:
-        print(f"  ✗ Failed to initialize TPU system: {str(e)}")
-        sys.exit(1)
-    
-    # Initialize TPU Strategy
-    print("\nInitializing TPU Strategy...")
-    try:
-        strategy = tf.distribute.TPUStrategy(resolver)
-        print(f"  ✓ TPU Strategy initialized with {strategy.num_replicas_in_sync} replicas")
-    except Exception as e:
-        print(f"  ✗ Failed to initialize TPU Strategy: {str(e)}")
-        sys.exit(1)
-    
-    # Run a simple computation using TPU
-    print("\nRunning simple computation on TPU...")
-    try:
-        with strategy.scope():
-            @tf.function
-            def simple_computation():
-                x = tf.random.normal([8, 100])
-                return tf.reduce_mean(tf.matmul(x, tf.transpose(x)))
-            
-            start_time = time.time()
-            result = strategy.run(simple_computation)
-            end_time = time.time()
-            
-            print(f"  ✓ Computation result: {result}")
-            print(f"  ✓ Computation time: {(end_time - start_time)*1000:.2f} ms")
-    except Exception as e:
-        print(f"  ✗ Failed to run computation on TPU: {str(e)}")
-        sys.exit(1)
-    
-    # Final success message
-    print("\n" + "="*80)
-    print("✓ TPU verification completed successfully!")
-    print("="*80 + "\n")
-    
-    return 0
+    return False
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    success = main()
+    sys.exit(0 if success else 1) 

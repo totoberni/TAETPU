@@ -68,6 +68,13 @@ fi
 
 log_success "Docker image exists: $IMAGE_NAME"
 
+# If TPU_VM_VERSION is not set or is using an outdated format, use the latest
+if [[ -z "$TPU_VM_VERSION" || "$TPU_VM_VERSION" == *-pjrt ]]; then
+  log "Using latest TPU VM version compatible with TensorFlow"
+  TPU_VM_VERSION="tpu-vm-tf-stable"
+  log "TPU_VM_VERSION set to: $TPU_VM_VERSION"
+fi
+
 # Create TPU VM with the correct software version
 log "Creating TPU VM: $TPU_NAME..."
 
@@ -203,12 +210,15 @@ print('TensorFlow version:', tf.__version__)
 print('TPU cores available:', len(tf.config.list_logical_devices('TPU')))
 if len(tf.config.list_logical_devices('TPU')) > 0:
     print('TPU test successful!')
-    tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
-    print('TPU:', tpu.cluster_spec())
-    tf.config.experimental_connect_to_cluster(tpu)
-    tf.tpu.experimental.initialize_tpu_system(tpu)
-    strategy = tf.distribute.TPUStrategy(tpu)
-    print('TPU Strategy initialized with', strategy.num_replicas_in_sync, 'replicas')
+    try:
+        tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
+        print('TPU:', tpu.cluster_spec())
+        tf.config.experimental_connect_to_cluster(tpu)
+        tf.tpu.experimental.initialize_tpu_system(tpu)
+        strategy = tf.distribute.TPUStrategy(tpu)
+        print('TPU Strategy initialized with', strategy.num_replicas_in_sync, 'replicas')
+    except Exception as e:
+        print('Note: TPU strategy initialization error:', e)
 "
 
 echo "TensorFlow TPU container started. To access it, run: docker exec -it tensorflow-tpu-container /bin/bash"

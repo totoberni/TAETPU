@@ -31,7 +31,7 @@ services:
     privileged: true
     restart: unless-stopped
     devices:
-      - "/dev:/dev"
+      - "/dev/accel0:/dev/accel0"
     networks:
       - tpu-network
 

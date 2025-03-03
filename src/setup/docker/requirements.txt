@@ -1,8 +1,3 @@
-# Core dependencies
-tensorflow==2.18.0
-numpy>=1.26.0,<2.1.0
-keras>=3.5.0
-
 # TPU-related dependencies
 h5py>=3.11.0
 protobuf>=3.20.3,<6.0.0
@@ -13,10 +8,10 @@ typing-extensions>=3.6.6
 wrapt>=1.11.0
 
 # Utilities
-tensorboard>=2.18.0,<2.19.0
-matplotlib>=3.7.0
-pandas>=2.0.0
-scikit-learn>=1.2.0
+tensorboard>=2.8.0
+matplotlib>=3.5.0
+pandas>=1.3.0
+scikit-learn>=1.0.0
 
 # Google Cloud
 google-api-python-client>=2.0.0
@@ -24,15 +19,11 @@ google-cloud-storage>=2.0.0
 google-auth>=2.0.0
 
 # Monitoring & Profiling
-tensorboard-plugin-profile==2.12.0
+tensorboard-plugin-profile
 
 # Utilities
 PyYAML>=6.0
-python-dotenv>=1.0.1
+python-dotenv>=1.0.0
 
-# Data Processing (minimal set)
-numpy>=1.22.0,<1.24.0
-pandas>=2.0.0
-
-# Visualization (minimal set)
-seaborn>=0.12.0
+# Visualization
+seaborn>=0.11.0
