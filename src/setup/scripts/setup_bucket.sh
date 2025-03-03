@@ -2,7 +2,7 @@
 
 # --- DETERMINE SCRIPT AND PROJECT DIRECTORIES ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- IMPORT COMMON FUNCTIONS ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
@@ -96,4 +96,7 @@ log "TensorBoard logs path: $TENSORBOARD_DIR"
 create_directory "$TRAINING_DATA_DIR" "Training data"
 create_directory "$TENSORBOARD_DIR" "TensorBoard logs"
 
-log "GCS Bucket Setup Complete. Bucket 'gs://$BUCKET_NAME' is ready with all required directories."
+log_success "GCS Bucket Setup Complete. Bucket 'gs://$BUCKET_NAME' is ready with all required directories."
+log ""
+log "To verify bucket configuration, run:"
+log "$PROJECT_DIR/src/utils/verify.sh --bucket"
