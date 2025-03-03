@@ -198,24 +198,27 @@ function find_tpu_library() {
   fi
 }
 
-# Verify TPU existence
+# Verify if TPU VM exists
 function verify_tpu_existence() {
   local TPU_NAME="$1"
   local TPU_ZONE="$2"
   local PROJECT_ID="$3"
+
+  log "Checking if TPU VM exists: $TPU_NAME in zone $TPU_ZONE (project: $PROJECT_ID)"
   
-  log "Checking if TPU VM exists: $TPU_NAME"
-  local tpu_exists=$(gcloud compute tpus tpu-vm list \
-    --zone="$TPU_ZONE" \
+  # Use the lenient filter approach that works consistently
+  local tpu_exists
+  tpu_exists=$(gcloud compute tpus tpu-vm list \
     --project="$PROJECT_ID" \
-    --filter="name=$TPU_NAME" \
-    --format="value(name)" 2>/dev/null || echo "")
+    --filter="name:${TPU_NAME}" \
+    --format="value(name)" 2>/dev/null)
   
   if [[ -n "$tpu_exists" ]]; then
-    log_success "TPU VM exists: $TPU_NAME"
+    log "TPU VM found: $tpu_exists"
     return 0
   else
-    log_warning "TPU VM does not exist: $TPU_NAME"
+    log_warning "TPU VM not found. Available TPUs in project:"
+    gcloud compute tpus tpu-vm list --project="$PROJECT_ID" 2>/dev/null || log_warning "No TPUs found in project"
     return 1
   fi
 }

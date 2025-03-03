@@ -4,33 +4,24 @@ google-api-python-client==1.8.0
 google-api-core>=1.13.0,<2.0.0
 google-cloud-storage==1.42.3
 
-# Logging
-loguru>=0.7.0
-rich>=13.4.2
-psutil>=5.9.5
-
-# Performance Analysis
-py-spy>=0.3.14
-
-# Data Processing
-numpy~=1.26.0
-pandas>=2.0.0
-
 # TensorFlow & TPU Ecosystem
 tensorflow-addons==0.23.0
 tfrecord==1.14.5
+tensorflow-tpu==2.18.0
+tensorflow-estimator==2.12.0
 
-# Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
+# Monitoring & Profiling
+tensorboard==2.18.0
+tensorboard-plugin-profile==2.18.0
 
 # Utilities
 PyYAML>=6.0
 python-dotenv>=1.0.1
 
-# JSON and Date Utilities
-python-dateutil>=2.8.2
-jsonschema>=4.17.3
+# Data Processing (minimal set)
+numpy~=1.26.0
+pandas>=2.0.0
 
-# Monitoring & Profiling
-tensorboard-plugin-profile>=2.18.0
+# Visualization (minimal set)
+matplotlib>=3.7.0
+seaborn>=0.12.0

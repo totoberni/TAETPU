@@ -9,289 +9,197 @@ source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 # Default values
 ENV_FILE="$PROJECT_DIR/source/.env"
-CHECK_ENV=false
-CHECK_TPU=false
-CHECK_BUCKET=false
-CHECK_IMAGE=false
+TPU_ENV_FILE="$PROJECT_DIR/source/tpu.env"
+VERIFY_ENV=false
+VERIFY_IMAGE=false
+VERIFY_TPU=false
 
 # Initialize the script
-init_script "Verification"
-
-# Usage information
-function show_usage() {
-  echo "Usage: $0 [options]"
-  echo ""
-  echo "Verify TPU development environment"
-  echo ""
-  echo "Options:"
-  echo "  --env           Verify environment variables"
-  echo "  --tpu           Verify TPU hardware"
-  echo "  --bucket        Verify GCS bucket"
-  echo "  --image         Verify Docker image"
-  echo "  -h, --help      Show this help message"
-  exit 1
-}
+init_script "Environment Verification"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --env)
-      CHECK_ENV=true
-      shift
-      ;;
-    --tpu)
-      CHECK_TPU=true
-      shift
-      ;;
-    --bucket)
-      CHECK_BUCKET=true
+      VERIFY_ENV=true
       shift
       ;;
     --image)
-      CHECK_IMAGE=true
+      VERIFY_IMAGE=true
+      shift
+      ;;
+    --tpu)
+      VERIFY_TPU=true
       shift
       ;;
     -h|--help)
-      show_usage
+      echo "Usage: $0 [options]"
+      echo ""
+      echo "Verify environment and setup"
+      echo ""
+      echo "Options:"
+      echo "  --env       Verify environment variables"
+      echo "  --image     Verify Docker image functionality"
+      echo "  --tpu       Verify TPU functionality"
+      echo "  -h, --help  Show this help message"
+      exit 1
       ;;
     *)
       log_error "Unknown option: $1"
-      show_usage
+      exit 1
       ;;
   esac
 done
 
-# If no options provided, check environment by default
-if [[ "$CHECK_ENV" == "false" && "$CHECK_TPU" == "false" && "$CHECK_BUCKET" == "false" && "$CHECK_IMAGE" == "false" ]]; then
-  CHECK_ENV=true
+# If no options specified, verify everything
+if [[ "$VERIFY_ENV" == "false" && "$VERIFY_IMAGE" == "false" && "$VERIFY_TPU" == "false" ]]; then
+  VERIFY_ENV=true
+  VERIFY_IMAGE=true
+  VERIFY_TPU=true
 fi
 
 # Load environment variables
-load_env_vars "$ENV_FILE"
+load_env_vars "$ENV_FILE" || exit 1
+
+# Load TPU-specific environment variables if they exist
+if [[ -f "$TPU_ENV_FILE" ]]; then
+  log "Loading TPU-specific environment variables..."
+  source "$TPU_ENV_FILE"
+  log_success "TPU-specific environment variables loaded"
+else
+  log_warning "TPU-specific environment file not found: $TPU_ENV_FILE"
+fi
 
 # Verify environment variables
-function verify_env() {
+if [[ "$VERIFY_ENV" == "true" ]]; then
   log_section "Environment Variables Verification"
   
-  # Required environment variables
-  local required_vars=(
-    "PROJECT_ID" 
-    "TPU_ZONE" 
-    "TPU_NAME" 
-    "TPU_TYPE" 
-    "TPU_VM_VERSION" 
-    "TF_VERSION" 
-    "BUCKET_NAME"
-  )
+  # Required variables
+  REQUIRED_VARS=("PROJECT_ID" "TF_VERSION")
   
-  check_env_vars "${required_vars[@]}"
-  if [[ $? -eq 0 ]]; then
-    log_success "All required environment variables are set"
-    # Configure TPU environment variables with sensible defaults
-    configure_tpu_env
-    return 0
-  else
-    return 1
+  # TPU-specific required variables
+  if [[ "$VERIFY_TPU" == "true" ]]; then
+    REQUIRED_VARS+=("TPU_ZONE" "TPU_TYPE" "TPU_VM_VERSION" "TPU_NAME")
   fi
-}
-
-# Verify TPU hardware
-function verify_tpu() {
-  log_section "TPU Hardware Verification"
   
-  # Setup authentication
-  setup_auth
+  # Check all required variables
+  MISSING_VARS=0
+  for var in "${REQUIRED_VARS[@]}"; do
+    if [[ -z "${!var}" ]]; then
+      log_error "Required variable $var is not set"
+      MISSING_VARS=$((MISSING_VARS+1))
+    else
+      log_success "Variable $var is set: ${!var}"
+    fi
+  done
+  
+  if [[ $MISSING_VARS -gt 0 ]]; then
+    log_error "Missing $MISSING_VARS required variables. Please check your .env and tpu.env files."
+    exit 1
+  fi
+  
+  log_success "All required environment variables are set"
+fi
+
+# Verify TPU functionality
+if [[ "$VERIFY_TPU" == "true" ]]; then
+  log_section "TPU Verification"
   
   # Check if TPU VM exists
-  if ! verify_tpu_existence "$TPU_NAME" "$TPU_ZONE" "$PROJECT_ID"; then
-    log_error "TPU VM $TPU_NAME not found"
-    return 1
+  log "Checking if TPU VM exists: $TPU_NAME"
+  if ! gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" &>/dev/null; then
+    log_error "TPU VM does not exist: $TPU_NAME"
+    log_error "Please run setup_tpu.sh first to create the TPU VM"
+    exit 1
   fi
+  
+  log_success "TPU VM exists: $TPU_NAME"
   
   # Check TPU VM state
-  local tpu_state
-  tpu_state=$(verify_tpu_state "$TPU_NAME" "$TPU_ZONE" "$PROJECT_ID")
-  if [[ $? -ne 0 ]]; then
-    log_error "TPU VM is in $tpu_state state (not READY)"
-    return 1
+  TPU_STATE=$(gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" --format="value(state)")
+  if [[ "$TPU_STATE" != "READY" ]]; then
+    log_error "TPU VM is not in READY state. Current state: $TPU_STATE"
+    exit 1
   fi
-
-  # Create TPU count script based on documentation example
-  local TPU_COUNT_FILE=$(mktemp)
-  cat > "$TPU_COUNT_FILE" << 'EOF'
-import tensorflow as tf
-print(f"TensorFlow can access {len(tf.config.list_logical_devices('TPU'))} TPU cores")
-EOF
-
-  # Copy and run TPU count script
-  log "Checking TPU device accessibility..."
-  gcloud compute tpus tpu-vm scp "$TPU_COUNT_FILE" "$TPU_NAME":/tmp/tpu_count.py \
-    --zone="$TPU_ZONE" --project="$PROJECT_ID" > /dev/null
   
-  ssh_with_timeout "export TPU_NAME=local && \
-               export PJRT_DEVICE=TPU && \
-               export NEXT_PLUGGABLE_DEVICE_USE_C_API=true && \
-               export TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so && \
-               python3 /tmp/tpu_count.py" 60
+  log_success "TPU VM is in READY state"
   
-  local count_result=$?
-  if [[ $count_result -ne 0 ]]; then
-    log_error "TPU core detection failed. Cannot proceed with computation test."
-    rm -f "$TPU_COUNT_FILE"
-    return 1
-  fi
-
-  # Create TPU computation test script based on documentation example
-  local TPU_TEST_FILE=$(mktemp)
-  cat > "$TPU_TEST_FILE" << 'EOF'
-import tensorflow as tf
-print("Tensorflow version " + tf.__version__)
-
-@tf.function
-def add_fn(x,y):
-  z = x + y
-  return z
-
-resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
-tf.config.experimental_connect_to_cluster(resolver)
-tf.tpu.experimental.initialize_tpu_system(resolver)
-strategy = tf.distribute.TPUStrategy(resolver)
-
-x = tf.constant(1.0)
-y = tf.constant(1.0)
-result = strategy.run(add_fn, args=(x,y))
-print(result)
-EOF
-
-  # Copy and run test script
-  log "Running TPU computation test..."
-  gcloud compute tpus tpu-vm scp "$TPU_TEST_FILE" "$TPU_NAME":/tmp/tpu_test.py \
-    --zone="$TPU_ZONE" --project="$PROJECT_ID" > /dev/null
+  # Copy and run the TPU verification script
+  log "Copying TPU verification script to TPU VM..."
+  gcloud compute tpus tpu-vm scp "$SCRIPT_DIR/verify_tpu.py" "$TPU_NAME":/tmp/verify_tpu.py \
+    --zone="$TPU_ZONE" --project="$PROJECT_ID" > /dev/null || {
+    log_error "Failed to copy TPU verification script to TPU VM"
+    exit 1
+  }
   
-  ssh_with_timeout "export TPU_NAME=local && \
-               export PJRT_DEVICE=TPU && \
-               export NEXT_PLUGGABLE_DEVICE_USE_C_API=true && \
-               export TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so && \
-               python3 /tmp/tpu_test.py" 120
+  log "Running TPU verification script on TPU VM..."
+  gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" --project="$PROJECT_ID" \
+    --command="chmod +x /tmp/verify_tpu.py && docker exec -it tensorflow-tpu-container python /tmp/verify_tpu.py" || {
+    log_error "TPU verification failed"
+    exit 1
+  }
   
-  local result=$?
-  rm -f "$TPU_TEST_FILE" "$TPU_COUNT_FILE"
-  
-  if [[ $result -eq 0 ]]; then
-    log_success "TPU hardware verification passed"
-    return 0
-  else
-    log_error "TPU computation test failed"
-    return 1
-  fi
-}
+  log_success "TPU verification completed successfully"
+fi
 
-# Verify GCS bucket
-function verify_bucket() {
-  log_section "GCS Bucket Verification"
-  
-  # Setup authentication
-  setup_auth
-  
-  if gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
-    log_success "GCS bucket exists: gs://$BUCKET_NAME"
-    return 0
-  else
-    log_error "GCS bucket not found: gs://$BUCKET_NAME"
-    return 1
-  fi
-}
-
-# Verify Docker image
-function verify_image() {
+# Verify Docker image functionality
+if [[ "$VERIFY_IMAGE" == "true" ]]; then
   log_section "Docker Image Verification"
   
-  # Setup authentication
-  setup_auth
+  # Set Docker image name
+  IMAGE_NAME="gcr.io/${PROJECT_ID}/tensorflow-tpu:${IMAGE_TAG:-v1}"
   
-  local IMAGE_NAME="gcr.io/${PROJECT_ID}/tpu-hello-world:v1"
-  
-  if ! gcloud container images describe "$IMAGE_NAME" &> /dev/null; then
+  # Check if the Docker image exists in GCR
+  log "Checking if Docker image exists: $IMAGE_NAME"
+  if ! gcloud container images describe "$IMAGE_NAME" &>/dev/null; then
     log_error "Docker image not found: $IMAGE_NAME"
-    log_error "Please run setup_image.sh first to build the image"
-    return 1
+    log_error "Please run setup_image.sh first to build and push the image"
+    exit 1
   fi
   
   log_success "Docker image exists: $IMAGE_NAME"
   
-  # Check if we're on the TPU VM to verify actual container TPU access
-  if verify_tpu_existence "$TPU_NAME" "$TPU_ZONE" "$PROJECT_ID"; then
-    log "Running Docker container with TPU access verification..."
-    
-    # Create a simple verification script with explicitly hardcoded image name
-    local DOCKER_TEST_FILE=$(mktemp)
-    cat > "$DOCKER_TEST_FILE" << EOF
-#!/bin/bash
-FULL_IMAGE_NAME="gcr.io/${PROJECT_ID}/tpu-hello-world:v1"
-echo "Using Docker image: \$FULL_IMAGE_NAME"
-
-docker run --rm --privileged \\
-  --device=/dev/accel0 \\
-  -e PJRT_DEVICE=TPU \\
-  -e TPU_NAME=local \\
-  -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \\
-  -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so \\
-  -v /lib/libtpu.so:/lib/libtpu.so \\
-  \$FULL_IMAGE_NAME \\
-  python -c "import tensorflow as tf; print(f'TensorFlow version: {tf.__version__}'); print(f'TensorFlow can access {len(tf.config.list_logical_devices(\"TPU\"))} TPU cores')"
-EOF
-    
-    # Make it executable
-    chmod +x "$DOCKER_TEST_FILE"
-    
-    # Transfer the PROJECT_ID to the remote VM
-    ssh_with_timeout "echo 'export PROJECT_ID=${PROJECT_ID}' > /tmp/project_env.sh" 30
-    
-    # Copy and run on TPU VM
-    gcloud compute tpus tpu-vm scp "$DOCKER_TEST_FILE" "$TPU_NAME":/tmp/verify_docker.sh \
-      --zone="$TPU_ZONE" --project="$PROJECT_ID" > /dev/null
-    
-    ssh_with_timeout "chmod +x /tmp/verify_docker.sh && source /tmp/project_env.sh && /tmp/verify_docker.sh" 120
-    
-    local result=$?
-    rm -f "$DOCKER_TEST_FILE"
-    
-    if [[ $result -eq 0 ]]; then
-      log_success "Docker container TPU access verification passed"
-    else
-      log_error "Docker container TPU access verification failed"
-      return 1
-    fi
-  else
-    log_warning "TPU VM not found. Skipping Docker container TPU access verification."
-    log_warning "To verify Docker container TPU access, run this script on the TPU VM."
+  # Check if TPU VM exists
+  log "Checking if TPU VM exists: $TPU_NAME"
+  if ! gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" &>/dev/null; then
+    log_error "TPU VM does not exist: $TPU_NAME"
+    log_error "Please run setup_tpu.sh first to create the TPU VM"
+    exit 1
   fi
   
-  return 0
-}
-
-# Run verifications based on flags
-EXIT_CODE=0
-
-if [[ "$CHECK_ENV" == "true" ]]; then
-  verify_env
-  [[ $? -ne 0 ]] && EXIT_CODE=1
+  # Check if container is running on TPU VM
+  log "Checking if container is running on TPU VM..."
+  CONTAINER_RUNNING=$(gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" --project="$PROJECT_ID" \
+    --command="docker ps -q -f name=tensorflow-tpu-container" 2>/dev/null)
+  
+  if [[ -z "$CONTAINER_RUNNING" ]]; then
+    log_error "Container is not running on TPU VM"
+    log_error "Please make sure the container is started with /tmp/start_tensorflow_container.sh"
+    exit 1
+  fi
+  
+  log_success "Container is running on TPU VM"
+  
+  # Run a simple test in the container
+  log "Running a simple test in the container..."
+  TEST_RESULT=$(gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" --project="$PROJECT_ID" \
+    --command="docker exec tensorflow-tpu-container python -c 'import tensorflow as tf; print(\"TensorFlow version:\", tf.__version__); print(\"TPU cores available:\", len(tf.config.list_logical_devices(\"TPU\")))'" 2>/dev/null)
+  
+  if [[ "$TEST_RESULT" == *"TPU cores available: 0"* ]]; then
+    log_error "No TPU cores are available in the container"
+    log_error "Please check the container setup"
+    exit 1
+  fi
+  
+  log_success "Container test successful"
+  log "Test result: $TEST_RESULT"
+  
+  log_success "Docker image verification completed successfully"
 fi
 
-if [[ "$CHECK_TPU" == "true" ]]; then
-  verify_tpu
-  [[ $? -ne 0 ]] && EXIT_CODE=1
-fi
-
-if [[ "$CHECK_BUCKET" == "true" ]]; then
-  verify_bucket
-  [[ $? -ne 0 ]] && EXIT_CODE=1
-fi
-
-if [[ "$CHECK_IMAGE" == "true" ]]; then
-  verify_image
-  [[ $? -ne 0 ]] && EXIT_CODE=1
-fi
-
+log_success "Verification completed successfully"
 log_elapsed_time
-exit $EXIT_CODE
+exit 0

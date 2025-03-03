@@ -17,12 +17,15 @@ Before using these scripts, ensure you have:
 project-root/
 ├── source/
 │   ├── .env              # Environment variables configuration
+│   ├── tpu.env           # TPU-specific environment variables
 │   └── [credentials]     # Service account key (if used)
 ├── src/
 │   ├── setup/
 │   │   ├── docker/
 │   │   │   ├── Dockerfile        # TPU-enabled container definition
-│   │   │   └── requirements.txt  # Python dependencies
+│   │   │   ├── requirements.txt  # Python dependencies
+│   │   │   ├── entrypoint.sh     # Container entrypoint script
+│   │   │   └── docker-compose.yaml # Docker Compose configuration
 │   │   ├── scripts/
 │   │   │   ├── check_vm_versions.sh  # Helper for finding compatible TPU VM versions
 │   │   │   ├── check_zones.sh        # Helper for finding TPU availability by zone
@@ -32,6 +35,7 @@ project-root/
 │   ├── utils/
 │   │   ├── common_logging.sh     # Shared logging and utility functions
 │   │   ├── verify.sh             # Resource verification tools
+│   │   ├── verify_tpu.py         # TPU hardware verification script
 │   │   └── monitors/             # Monitoring modules
 │   └── teardown/
 │       ├── teardown_bucket.sh    # Delete GCS bucket
@@ -116,7 +120,93 @@ This script:
 
 ## Setup Process
 
-### 1. Create a GCS Bucket
+### Detailed Workflow to Prevent TPU Segfaults
+
+The following workflow ensures a successful TPU setup without segfaults:
+
+### 1. Build and Push Docker Image
+
+```bash
+./src/setup/scripts/setup_image.sh
+```
+
+This script will:
+- Create the `tpu.env` file if not present
+- Build a Docker image with the proper TPU dependencies
+- Add CPU optimization flags (AVX2, AVX512F, AVX512_VNNI, AVX512_BF16, FMA)
+- Push the image to Google Container Registry
+
+The Docker image includes:
+- TensorFlow optimized for TPU
+- Pre-installed TPU driver (`libtpu.so`)
+- Properly configured environment variables
+- CPU optimization flags for efficient tensor operations
+
+### 2. Create TPU VM and Deploy Container
+
+```bash
+./src/setup/scripts/setup_tpu.sh
+```
+
+This script will:
+- Create a TPU VM with the specified configuration
+- Configure the VM with proper TPU environment variables
+- Install Docker Compose if not present
+- Create a startup script for running the container
+- Copy necessary files to the VM
+
+### 3. Start the Container on the TPU VM
+
+Once the VM is created, connect to it and run the container:
+
+```bash
+# Connect to TPU VM
+gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE --project=$PROJECT_ID
+
+# On the TPU VM
+/tmp/start_tensorflow_container.sh
+```
+
+### 4. Verify the Setup
+
+```bash
+./src/utils/verify.sh --tpu --image
+```
+
+The verification script will:
+- Check if the TPU VM exists and is in READY state
+- Copy the TPU verification script to the VM
+- Run the verification script inside the container
+- Properly initialize the TPU using safe initialization methods
+- Run a simple computation to test TPU functionality
+
+## Common Causes of TPU Segfaults
+
+The most common causes of TPU segfaults and how our setup prevents them:
+
+1. **Incorrect environment variables**:
+   - Our setup ensures all required environment variables are set consistently
+   - The `tpu.env` file centralizes TPU configuration
+
+2. **Improper initialization sequence**:
+   - The `verify_tpu.py` script uses a carefully ordered initialization sequence
+   - It follows Google's recommended best practices for TPU initialization
+
+3. **Missing or incompatible library versions**:
+   - The Dockerfile uses the official pre-built TensorFlow wheel for TPU
+   - `requirements.txt` specifies compatible package versions
+
+4. **Multiple TPU initialization**:
+   - The `ALLOW_MULTIPLE_LIBTPU_LOAD` environment variable prevents crashes
+   - The verification script checks if TPU is already initialized
+
+5. **Insufficient privileges**:
+   - The Docker container runs with `--privileged` flag
+   - All necessary device access is configured in `docker-compose.yaml`
+
+By following this workflow and using the provided verification tools, the risk of TPU segfaults is significantly reduced.
+
+## Create a GCS Bucket (Optional)
 
 ```bash
 ./src/setup/scripts/setup_bucket.sh
@@ -126,29 +216,6 @@ This script:
 - Creates a GCS bucket for storing training data and logs
 - Sets up directories for training data and TensorBoard logs according to your `.env` configuration
 - Configures appropriate permissions
-
-### 2. Build and Push Docker Image
-
-```bash
-./src/setup/scripts/setup_image.sh
-```
-
-This script:
-- Uses the Dockerfile in `src/setup/docker/` to build a container image with TensorFlow and TPU support
-- Tags the image with your project ID
-- Pushes it to Google Container Registry for use on your TPU VM
-
-### 3. Create a TPU VM
-
-```bash
-./src/setup/scripts/setup_tpu.sh
-```
-
-This script:
-- Creates a new TPU VM with the configuration from your `.env` file
-- Sets up Docker permissions on the VM
-- Configures service account authentication (if specified)
-- Sets TPU environment variables
 
 ## Verification
 
@@ -164,6 +231,14 @@ After setup, verify your resources with the verification tool:
 ./src/utils/verify.sh --image # Verify Docker image and container TPU access
 ./src/utils/verify.sh --bucket # Verify GCS bucket configuration
 ```
+
+The TPU verification process:
+1. Checks the TPU VM state
+2. Copies verification script to the VM
+3. Runs the script inside the Docker container
+4. Safely initializes the TPU hardware
+5. Performs a test computation
+6. Verifies the computation results
 
 ## Code Management
 
@@ -341,7 +416,17 @@ When you're finished with your TPU resources, use these scripts to clean up:
 
 - Ensure the container is run with `--privileged` and `--device=/dev/accel0`
 - Verify the TPU driver is mounted correctly with `-v /lib/libtpu.so:/lib/libtpu.so`
-- Check that all required environment variables are set
+- Check that all required environment variables are set in `tpu.env`
+- Ensure the TPU initialization sequence is followed correctly
+
+### TPU Segfaults
+
+If you encounter TPU segfaults:
+1. Check that the Docker container has all required environment variables from `tpu.env`
+2. Verify the TPU initialization sequence in your code follows the pattern in `verify_tpu.py`
+3. Make sure you're not initializing the TPU multiple times
+4. Check for GPU memory leaks in long-running processes
+5. Restart the container with `/tmp/start_tensorflow_container.sh`
 
 ### Authentication Issues
 
