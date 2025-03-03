@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# --- Get script directory for absolute path references ---
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+# --- DETERMINE SCRIPT AND PROJECT DIRECTORIES ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-# --- Import common functions ---
+# --- IMPORT COMMON FUNCTIONS ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 # --- MAIN SCRIPT ---

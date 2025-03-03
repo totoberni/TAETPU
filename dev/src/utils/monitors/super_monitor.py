@@ -474,84 +474,49 @@ class SuperMonitor(MonitorInterface, MetricsPublisher):
             log_error(f"Error checking GCS bucket access: {e}")
         
         return result
-    
-    def export_metrics_for_webapp(self):
-        """Export metrics in a format suitable for webapp consumption
-        
-        This method is used by the API server to get metrics in a web-friendly format.
-        It's designed to be optional - monitoring will work without it.
-        
-        Returns:
-            dict: Dictionary with latest metrics
-        """
-        # Collect latest info
-        info = self.collect_info()
-        
-        # Format as a standard sample
-        sample = self._process_sample(info)
-        
-        # Create a webapp-friendly format with less nesting
-        export_data = {
-            "timestamp": sample.get("timestamp"),
-            "monitor": self.name,
-            "status": sample.get("status", "ok"),
-        }
-        
-        # Flatten metrics for easier access in web apps
-        for key, value in sample.get("metrics", {}).items():
-            if isinstance(value, (int, float, str, bool)):
-                export_data[key] = value
-        
-        # Add relevant metadata
-        for key, value in sample.get("metadata", {}).items():
-            export_data[f"metadata_{key}"] = value
-            
-        return export_data
         
     # Optional API integration - only used if API components are available
     def save_metrics_for_api(self):
-        """Save the latest metrics to a JSON file for API consumption
-        
-        This is an optional method that will only be used if API integration
-        is enabled in the configuration.
-        """
+        """Save metrics directly to GCS for TensorBoard backend"""
         try:
-            # Check if API integration is enabled in config
-            webapp_config = self.config.get("webapp", {})
-            if not webapp_config.get("enable_realtime_api", False):
-                return
-                
-            # Get metrics
-            metrics = self.export_metrics_for_webapp()
+            metrics = self.get_metrics()
             
-            # Check if we can directly write the JSON file without the API module
+            # Format for export
+            export_data = {
+                "timestamp": datetime.now().isoformat(),
+                "monitor": self.name,
+                "status": "ok",
+                "metrics": metrics
+            }
+            
+            # Save locally first
             latest_path = os.path.join(self.log_dir, "latest_metrics.json")
+            with open(latest_path, "w") as f:
+                json.dump(export_data, f, indent=2)
             
-            try:
-                # First try to use the API module if available
-                from ..api.webapp_integration import export_metrics_to_json
+            # If using GCS, also write to the bucket
+            if self.using_gcs and self.bucket_name:
+                # Determine TensorBoard log path
+                tb_dir = self.tb_log_dir.replace(f"gs://{self.bucket_name}/", "")
+                gcs_path = f"{tb_dir}/latest_metrics.json"
                 
-                # Export metrics to JSON using the API utility
-                export_metrics_to_json(
-                    monitor_name=self.name,
-                    metrics=metrics.get("metrics", {}),
-                    status=metrics.get("status", "ok"),
-                    metadata=metrics.get("metadata", {}),
-                    log_dir=self.log_dir
-                )
-                return
-            except ImportError:
-                # API module not available, fall back to direct JSON write
-                with open(latest_path, "w") as f:
-                    json.dump({
-                        "timestamp": datetime.now().isoformat(),
-                        "monitor": self.name,
-                        "status": "ok",
-                        "metrics": metrics
-                    }, f, indent=2)
-                log(f"Saved metrics to {latest_path} for API consumption")
+                try:
+                    from google.cloud import storage
+                    client = storage.Client()
+                    bucket = client.bucket(self.bucket_name)
+                    blob = bucket.blob(gcs_path)
+                    blob.upload_from_string(
+                        json.dumps(export_data, indent=2),
+                        content_type="application/json"
+                    )
+                    log_success(f"Metrics saved to GCS at {gcs_path}")
+                except Exception as e:
+                    log_error(f"Error saving to GCS: {e}")
+            
+            return True
         except Exception as e:
-            log_error(f"Error saving metrics for API: {e}")
+            log_error(f"Error saving metrics: {e}")
+            return False
             
     @property
     def has_tpu(self):

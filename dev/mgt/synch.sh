@@ -44,6 +44,43 @@ create_compose_file() {
   
   log "Creating Docker Compose file for watch mode at $compose_file"
   
+  # Ensure TPU library path is set
+  if [[ -z "$TF_PLUGGABLE_DEVICE_LIBRARY_PATH" ]]; then
+    log_warning "TF_PLUGGABLE_DEVICE_LIBRARY_PATH not set. Using default '/lib/libtpu.so'"
+    TF_PLUGGABLE_DEVICE_LIBRARY_PATH="/lib/libtpu.so"
+  fi
+  
+  # Check if the TPU library exists on the TPU VM
+  log "Checking TPU library access..."
+  tpu_lib_exists=$(ssh_with_timeout "test -f $TF_PLUGGABLE_DEVICE_LIBRARY_PATH && echo 'exists'" 10 | grep -q "exists"; echo $?)
+  if [[ $tpu_lib_exists -ne 0 ]]; then
+    log_warning "TPU library not found at $TF_PLUGGABLE_DEVICE_LIBRARY_PATH"
+    log "Searching for TPU library..."
+    TPU_LIB_PATH=$(ssh_with_timeout "find / -name 'libtpu.so' 2>/dev/null | head -n 1" 30 | tr -d '\r')
+    
+    if [[ -n "$TPU_LIB_PATH" ]]; then
+      log_success "Found TPU library at: $TPU_LIB_PATH"
+      TF_PLUGGABLE_DEVICE_LIBRARY_PATH="$TPU_LIB_PATH"
+      
+      # Also update the .env file with the discovered path if needed
+      if [[ -f "$ENV_FILE" && -w "$ENV_FILE" ]]; then
+        log "Updating TPU library path in .env file"
+        # Different sed syntax for macOS vs Linux/Windows
+        if [[ "$(uname)" == "Darwin" ]]; then
+          # macOS requires an empty string for -i
+          sed -i '' "s|^TF_PLUGGABLE_DEVICE_LIBRARY_PATH=.*$|TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TPU_LIB_PATH|" "$ENV_FILE"
+        else
+          # Linux/Windows doesn't need an empty string
+          sed -i "s|^TF_PLUGGABLE_DEVICE_LIBRARY_PATH=.*$|TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TPU_LIB_PATH|" "$ENV_FILE"
+        fi
+      else
+        log_warning "Cannot update .env file - not writable or does not exist"
+      fi
+    else
+      log_warning "Could not find TPU library on TPU VM. TPU access may not work properly."
+    fi
+  fi
+  
   # Create or overwrite the docker-compose.yml file
   cat > "$compose_file" << EOF
 version: '3.8'
@@ -58,8 +95,12 @@ services:
       - PJRT_DEVICE=TPU
       - XLA_USE_BF16=1
       - PYTHONUNBUFFERED=1
+      - TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TF_PLUGGABLE_DEVICE_LIBRARY_PATH
+      - NEXT_PLUGGABLE_DEVICE_USE_C_API=true
+      - TPU_NAME=local
     volumes:
       - /tmp/dev/src:/app/dev/src
+      - $TF_PLUGGABLE_DEVICE_LIBRARY_PATH:$TF_PLUGGABLE_DEVICE_LIBRARY_PATH
     working_dir: /app
     command: /bin/bash -c "echo 'Container started in watch mode. Ready for development.' && sleep infinity"
     
@@ -81,6 +122,7 @@ services:
 EOF
   
   log_success "Docker Compose file created successfully"
+  log "TPU library will be mounted from $TF_PLUGGABLE_DEVICE_LIBRARY_PATH"
 }
 
 # Function to sync files to TPU VM
@@ -153,6 +195,43 @@ sync_utils() {
 restart_container() {
   log "Restarting Docker container on TPU VM..."
   
+  # Ensure TPU library path is set
+  if [[ -z "$TF_PLUGGABLE_DEVICE_LIBRARY_PATH" ]]; then
+    log_warning "TF_PLUGGABLE_DEVICE_LIBRARY_PATH not set. Using default '/lib/libtpu.so'"
+    TF_PLUGGABLE_DEVICE_LIBRARY_PATH="/lib/libtpu.so"
+  fi
+  
+  # Check if the TPU library exists on the TPU VM
+  log "Checking TPU library access..."
+  tpu_lib_exists=$(ssh_with_timeout "test -f $TF_PLUGGABLE_DEVICE_LIBRARY_PATH && echo 'exists'" 10 | grep -q "exists"; echo $?)
+  if [[ $tpu_lib_exists -ne 0 ]]; then
+    log_warning "TPU library not found at $TF_PLUGGABLE_DEVICE_LIBRARY_PATH"
+    log "Searching for TPU library..."
+    TPU_LIB_PATH=$(ssh_with_timeout "find / -name 'libtpu.so' 2>/dev/null | head -n 1" 30 | tr -d '\r')
+    
+    if [[ -n "$TPU_LIB_PATH" ]]; then
+      log_success "Found TPU library at: $TPU_LIB_PATH"
+      TF_PLUGGABLE_DEVICE_LIBRARY_PATH="$TPU_LIB_PATH"
+      
+      # Also update the .env file with the discovered path if needed
+      if [[ -f "$ENV_FILE" && -w "$ENV_FILE" ]]; then
+        log "Updating TPU library path in .env file"
+        # Different sed syntax for macOS vs Linux/Windows
+        if [[ "$(uname)" == "Darwin" ]]; then
+          # macOS requires an empty string for -i
+          sed -i '' "s|^TF_PLUGGABLE_DEVICE_LIBRARY_PATH=.*$|TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TPU_LIB_PATH|" "$ENV_FILE"
+        else
+          # Linux/Windows doesn't need an empty string
+          sed -i "s|^TF_PLUGGABLE_DEVICE_LIBRARY_PATH=.*$|TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TPU_LIB_PATH|" "$ENV_FILE"
+        fi
+      else
+        log_warning "Cannot update .env file - not writable or does not exist"
+      fi
+    else
+      log_warning "Could not find TPU library on TPU VM. TPU access may not work properly."
+    fi
+  fi
+  
   # Create a temporary script to run on the TPU VM
   TEMP_SCRIPT=$(mktemp)
   cat > "$TEMP_SCRIPT" << EOF
@@ -170,7 +249,11 @@ if [ -z "\$CONTAINERS" ]; then
     -e PJRT_DEVICE=TPU \\
     -e XLA_USE_BF16=1 \\
     -e PYTHONUNBUFFERED=1 \\
+    -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TF_PLUGGABLE_DEVICE_LIBRARY_PATH \\
+    -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \\
+    -e TPU_NAME=local \\
     -v /tmp/dev/src:/app/dev/src \\
+    -v $TF_PLUGGABLE_DEVICE_LIBRARY_PATH:$TF_PLUGGABLE_DEVICE_LIBRARY_PATH \\
     -w /app \\
     gcr.io/$PROJECT_ID/tpu-hello-world:v1 \\
     /bin/bash -c "echo 'Container started, waiting for commands.' && sleep infinity"
@@ -182,7 +265,11 @@ if [ -z "\$CONTAINERS" ]; then
       -e PJRT_DEVICE=TPU \\
       -e XLA_USE_BF16=1 \\
       -e PYTHONUNBUFFERED=1 \\
+      -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TF_PLUGGABLE_DEVICE_LIBRARY_PATH \\
+      -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \\
+      -e TPU_NAME=local \\
       -v /tmp/dev/src:/app/dev/src \\
+      -v $TF_PLUGGABLE_DEVICE_LIBRARY_PATH:$TF_PLUGGABLE_DEVICE_LIBRARY_PATH \\
       -w /app \\
       gcr.io/$PROJECT_ID/tpu-hello-world:v1 \\
       /bin/bash -c "echo 'Container started, waiting for commands.' && sleep infinity"

@@ -1,5 +1,8 @@
-cloud-tpu-client>=0.10
-google-cloud-storage>=2.0.0
+# Cloud TPU & Google Cloud
+cloud-tpu-client==0.10
+google-api-python-client==1.8.0
+google-api-core>=1.13.0,<2.0.0
+google-cloud-storage==1.42.3
 
 # Logging
 loguru>=0.7.0
@@ -10,16 +13,13 @@ psutil>=5.9.5
 py-spy>=0.3.14
 
 # Data Processing
-numpy>=1.24.0
+numpy~=1.26.0
 pandas>=2.0.0
 
-# TPU & TensorFlow
-tensorflow>=2.15.0
-keras>=2.15.0
-tfrecord>=1.15.0
-tensorflow-cloud>=0.1.10
-tensorflow-addons>=0.20.0
-tensorflow-datasets>=4.9.0
+# TensorFlow & TPU Ecosystem
+tensorflow==2.18.0
+tensorflow-addons==0.23.0
+tfrecord==1.14.5
 
 # Visualization
 matplotlib>=3.7.0
@@ -27,17 +27,11 @@ seaborn>=0.12.0
 
 # Utilities
 PyYAML>=6.0
-argparse>=1.4.0
-traceback2>=1.4.0
+python-dotenv>=1.0.1
 
-# JSON and date utilities
+# JSON and Date Utilities
 python-dateutil>=2.8.2
 jsonschema>=4.17.3
 
-# Monitoring 
-tensorboard>=2.12.0
-google-cloud-monitoring>=2.14.1
-tpu-profiler>=0.0.1
-
-# Webapp integrations
-python-dotenv>=1.0.1
+# Monitoring & Profiling
+tensorboard-plugin-profile>=2.18.0

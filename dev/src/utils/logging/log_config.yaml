@@ -6,7 +6,7 @@ save_interval: 5  # minutes
 bucket_name: ${BUCKET_NAME}
 use_gcs: true
 # Use the TensorBoard directory from .env but allow local subdirectories
-tensorboard_base: ${BUCKET_TENSORBOARD:-gs://infra-tempo-401122-hello-world-bucket/tensorboard-logs/}
+tensorboard_base: ${BUCKET_TENSORBOARD}
 
 # Logging configuration
 logging:
@@ -35,7 +35,7 @@ bucket_monitor:
     file_size_mb: 10
     interval_minutes: 30  # minutes between transfer tests
   # Use the BUCKET_DATRAIN directory as the base for test directories
-  test_dir: ${BUCKET_DATRAIN:-gs://infra-tempo-401122-hello-world-bucket/training-data/}test/
+  test_dir: ${BUCKET_DATRAIN}test/
 
 # Dashboard configuration
 dashboards:
@@ -61,7 +61,7 @@ google_cloud:
   project_id: ${PROJECT_ID}
   zone: ${TPU_ZONE:-europe-west4-a}
   region: ${TPU_REGION:-europe-west4}
-  credentials_file: ${SERVICE_ACCOUNT_JSON:-infra-tempo-401122-ae00db03bb34.json}
+  credentials_file: ${SERVICE_ACCOUNT_JSON}
 
 # Application integration
 webapp:

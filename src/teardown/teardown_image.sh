@@ -7,6 +7,18 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # --- Import common functions ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
+# --- Helper functions ---
+cleanup_packages_directory() {
+  local packs_dir="$PROJECT_DIR/source/packs"
+  if [ -d "$packs_dir" ]; then
+    log "Cleaning up packages directory at $packs_dir"
+    rm -rf "$packs_dir"
+    log_success "Packages directory cleaned up"
+  else
+    log "Packages directory not found. Skipping cleanup."
+  fi
+}
+
 # --- MAIN SCRIPT ---
 init_script 'Docker image teardown'
 ENV_FILE="$PROJECT_DIR/source/.env"
@@ -28,6 +40,9 @@ log "- Image Tag: v1"
 
 # Set up authentication
 setup_auth
+
+# Clean up packages directory
+cleanup_packages_directory
 
 # Check Docker is installed for local cleanup
 if command -v docker &> /dev/null; then
@@ -90,4 +105,4 @@ else
   log "Docker system prune skipped"
 fi
 
-log "Docker image teardown process completed." 
+log "Docker image teardown process completed."

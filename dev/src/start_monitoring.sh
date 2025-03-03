@@ -5,24 +5,11 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../../../" && pwd)"
 
-# --- Colors for pretty output ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+# --- Import common functions ---
+source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 # --- Functions ---
-log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
+# Removed duplicate log functions - using common_logging.sh instead
 
 print_usage() {
     echo "Usage: $0 [options]"
