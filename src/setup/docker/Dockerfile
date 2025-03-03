@@ -1,4 +1,4 @@
-# Use Python 3.8 as base
+# Use Python 3.8 as base (TPU support is better established for 3.8)
 FROM python:3.8-slim
 
 # Set working directory
@@ -13,12 +13,13 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TPU support - use the pre-built TensorFlow wheel for TPU
-# We're using the official TF wheel that's optimized for TPU
-RUN pip install --no-cache-dir https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/tensorflow/tf-2.18.0/tensorflow-2.18.0-cp38-cp38-linux_x86_64.whl
+# Install standard TensorFlow - we'll use the wheel that's known to work with TPUs
+RUN pip install --no-cache-dir tensorflow==2.18.0
 
-# Download the TPU driver library
-RUN curl -L https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/libtpu/1.6.0/libtpu.so -o /lib/libtpu.so
+# Download the TPU driver library directly from Google Cloud Storage
+# This is the official method recommended by Google
+RUN curl -L -o /lib/libtpu.so https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/libtpu/1.6.0/libtpu.so && \
+    chmod +x /lib/libtpu.so
 
 # Create directory for TPU support files
 RUN mkdir -p /usr/share/tpu

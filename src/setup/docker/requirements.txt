@@ -1,27 +1,38 @@
-# Cloud TPU & Google Cloud
-cloud-tpu-client==0.10
-google-api-python-client==1.8.0
-google-api-core>=1.13.0,<2.0.0
-google-cloud-storage==1.42.3
+# Core dependencies
+tensorflow==2.18.0
+numpy>=1.26.0,<2.1.0
+keras>=3.5.0
 
-# TensorFlow & TPU Ecosystem
-tensorflow-addons==0.23.0
-tfrecord==1.14.5
-tensorflow-tpu==2.18.0
-tensorflow-estimator==2.12.0
+# TPU-related dependencies
+h5py>=3.11.0
+protobuf>=3.20.3,<6.0.0
+absl-py>=1.0.0
+grpcio>=1.24.3,<2.0
+six>=1.12.0
+typing-extensions>=3.6.6
+wrapt>=1.11.0
+
+# Utilities
+tensorboard>=2.18.0,<2.19.0
+matplotlib>=3.7.0
+pandas>=2.0.0
+scikit-learn>=1.2.0
+
+# Google Cloud
+google-api-python-client>=2.0.0
+google-cloud-storage>=2.0.0
+google-auth>=2.0.0
 
 # Monitoring & Profiling
-tensorboard==2.18.0
-tensorboard-plugin-profile==2.18.0
+tensorboard-plugin-profile==2.12.0
 
 # Utilities
 PyYAML>=6.0
 python-dotenv>=1.0.1
 
 # Data Processing (minimal set)
-numpy~=1.26.0
+numpy>=1.22.0,<1.24.0
 pandas>=2.0.0
 
 # Visualization (minimal set)
-matplotlib>=3.7.0
 seaborn>=0.12.0

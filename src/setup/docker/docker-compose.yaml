@@ -21,6 +21,7 @@ services:
       - DNNL_MAX_CPU_ISA=${DNNL_MAX_CPU_ISA:-AVX2}
       - ALLOW_MULTIPLE_LIBTPU_LOAD=${ALLOW_MULTIPLE_LIBTPU_LOAD:-1}
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
+      - PYTHONPATH=/app
     volumes:
       - ${MODEL_DIR:-/app/model}:/app/model
       - /var/run/docker.sock:/var/run/docker.sock
