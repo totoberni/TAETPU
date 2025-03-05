@@ -8,131 +8,112 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
 # --- MAIN SCRIPT ---
-init_script 'TPU setup'
+init_script 'TPU VM setup'
 ENV_FILE="$PROJECT_DIR/source/.env"
+TPU_ENV_FILE="$PROJECT_DIR/source/tpu.env"
+
+# Load environment variables
+log "Loading general environment variables from .env..."
 load_env_vars "$ENV_FILE"
 
+# Always load TPU-specific environment variables
+log "Loading TPU-specific environment variables from tpu.env..."
+if [ -f "$TPU_ENV_FILE" ]; then
+    source "$TPU_ENV_FILE"
+    log_success "TPU environment variables loaded successfully"
+else
+    log_error "TPU environment file not found at $TPU_ENV_FILE"
+    log_error "This file is required for TPU configuration"
+    exit 1
+fi
+
 # Validate required environment variables
-check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_TYPE" "TPU_NAME" || exit 1
+check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_TYPE" "TPU_ZONE" "RUNTIME_VERSION" "SERVICE_ACCOUNT_JSON" || exit 1
 
 # Display configuration
-display_config "PROJECT_ID" "TPU_ZONE" "TPU_TYPE" "TPU_NAME"
+display_config "PROJECT_ID" "TPU_NAME" "TPU_TYPE" "TPU_ZONE" "RUNTIME_VERSION"
+
+# Display TPU-specific configuration
+log "TPU Environment Configuration:"
+display_config "PJRT_DEVICE" "XLA_USE_BF16" "PT_XLA_DEBUG_LEVEL" "TF_PLUGGABLE_DEVICE_LIBRARY_PATH"
+
+# Verify the credentials file exists
+if [ ! -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]; then
+    log_error "Error: Service account JSON file not found at $PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
+    exit 1
+fi
 
 # Set up authentication
 setup_auth
 
-log 'Configuring Google Cloud project and zone...'
-gcloud config set project "$PROJECT_ID"
-gcloud config set compute/zone "$TPU_ZONE"
-log "Project and zone configured: $PROJECT_ID in $TPU_ZONE"
+# Set the project and zone
+log "Setting project to $PROJECT_ID and zone to $TPU_ZONE..."
+gcloud config set project $PROJECT_ID
+gcloud config set compute/zone $TPU_ZONE
 
-# Check if the TPU already exists
-if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --project="$PROJECT_ID" &> /dev/null; then
-  log "TPU '$TPU_NAME' already exists. Skipping TPU creation."
+# Check if TPU already exists
+log "Checking if TPU '$TPU_NAME' already exists..."
+if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
+    log_warning "TPU '$TPU_NAME' already exists. Skipping creation."
 else
-  # Create the TPU VM with specified parameters
-  log "Creating TPU VM with name: $TPU_NAME, type: $TPU_TYPE..."
-
-  CREATE_CMD="gcloud compute tpus tpu-vm create \"$TPU_NAME\" \
-    --zone=\"$TPU_ZONE\" \
-    --project=\"$PROJECT_ID\" \
-    --accelerator-type=\"$TPU_TYPE\" \
-    --version=\"tpu-ubuntu2204-base\""
-
-  # Add service account if specified
-  if [[ -n "$SERVICE_ACCOUNT_EMAIL" ]]; then
-    CREATE_CMD="$CREATE_CMD --service-account=\"$SERVICE_ACCOUNT_EMAIL\""
-  fi
-
-  # Execute the command
-  eval "$CREATE_CMD"
-
-  log 'TPU VM creation completed successfully'
+    # Create the TPU VM with appropriate parameters
+    log "Creating TPU VM '$TPU_NAME'..."
+    gcloud compute tpus tpu-vm create "$TPU_NAME" \
+        --zone="$TPU_ZONE" \
+        --accelerator-type="$TPU_TYPE" \
+        --version="$RUNTIME_VERSION" \
+        --network="default" \
+        --service-account="$SERVICE_ACCOUNT_EMAIL" \
+        --scopes="https://www.googleapis.com/auth/cloud-platform" \
+        --metadata="install-nvidia-driver=True"
+    
+    log_success "TPU VM '$TPU_NAME' created successfully."
 fi
 
-# --- Setup Docker Permissions ---
-log "Setting up Docker permissions on TPU VM..."
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID" \
-    --worker=all \
-    --command="sudo usermod -aG docker \$USER && echo 'Docker permissions configured. You may need to reconnect to the VM for changes to take effect.'"
+# Connect to the TPU VM via SSH to install packages
+log "Installing packages on TPU VM..."
 
-# --- Copy service account key and configure authentication ---
-if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
-  log "Copying service account key to TPU VM and configuring authentication..."
-  
-  # Create a temporary copy of the key with a recognizable name
-  TMP_KEY="/tmp/tpu_service_account_key.json"
-  cp "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" "$TMP_KEY"
-  
-  # Copy the key to the TPU VM
-  gcloud compute tpus tpu-vm scp "$TMP_KEY" "$TPU_NAME": \
-      --zone="$TPU_ZONE" \
-      --project="$PROJECT_ID" \
-      --worker=all
-  
-  # Configure authentication on the TPU VM
-  gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-      --zone="$TPU_ZONE" \
-      --project="$PROJECT_ID" \
-      --worker=all \
-      --command="gcloud auth activate-service-account --key-file=tpu_service_account_key.json && gcloud auth configure-docker --quiet"
-  
-  # Remove the temporary copy
-  rm "$TMP_KEY"
-  
-  log "Service account authentication configured on TPU VM"
+# Install optimum-tpu
+log "Installing optimum-tpu package..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="pip install optimum-tpu -f https://storage.googleapis.com/libtpu-releases/index.html"
+
+# Transfer tpu.env to the TPU VM
+log "Transferring TPU environment configuration..."
+gcloud compute tpus tpu-vm scp "$TPU_ENV_FILE" "$TPU_NAME:~/tpu.env" --zone="$TPU_ZONE"
+
+# Set ENV variables on the TPU VM
+log "Setting environment variables on TPU VM..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="cat ~/tpu.env >> ~/.bashrc && rm ~/tpu.env"
+log_success "TPU environment variables configured on TPU VM"
+
+# Discover TPU driver location
+log "Discovering TPU driver location..."
+gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="find / -name libtpu.so 2>/dev/null || echo 'TPU driver not found'"
+
+# Pull the Docker image if it exists
+log "Pulling Docker image to TPU VM..."
+if gcloud container images describe "gcr.io/${PROJECT_ID}/tpu-hello-world:v1" &> /dev/null; then
+    log "Found Docker image, pulling to TPU VM..."
+    gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="docker pull gcr.io/${PROJECT_ID}/tpu-hello-world:v1"
+    
+    # Create a sample run script with --privileged flag
+    log "Creating a sample Docker run script with --privileged flag..."
+    gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="echo '#!/bin/bash
+# Sample script to run the Docker container with TPU access
+docker run --privileged --rm \\
+  -e PJRT_DEVICE=TPU \\
+  -e $(grep -v \"^#\" ~/tpu.env | xargs | sed \"s/ / -e /g\") \\
+  -v /dev:/dev \\
+  -v /lib/libtpu.so:/lib/libtpu.so \\
+  -p 5000:5000 \\
+  -p 6006:6006 \\
+  gcr.io/${PROJECT_ID}/tpu-hello-world:v1' > ~/run_container.sh && chmod +x ~/run_container.sh"
+    
+    log_success "Docker image pulled to TPU VM successfully."
+    log_success "Sample run script created at ~/run_container.sh"
 else
-  # --- Setup Docker Authentication without service account ---
-  log "Configuring Docker authentication for Google Container Registry..."
-  gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-      --zone="$TPU_ZONE" \
-      --project="$PROJECT_ID" \
-      --worker=all \
-      --command="gcloud auth configure-docker --quiet"
+    log_warning "Docker image gcr.io/${PROJECT_ID}/tpu-hello-world:v1 not found. Skipping pull."
+    log_warning "You may need to run setup_image.sh first to build and push the Docker image."
 fi
 
-# --- Docker Setup ---
-log "Pulling Docker image..."
-# Create a temporary script to pull the Docker image with fallback to sudo
-TEMP_SCRIPT=$(mktemp)
-cat > "$TEMP_SCRIPT" << EOF
-#!/bin/bash
-echo "Attempting to pull Docker image..."
-if docker pull gcr.io/$PROJECT_ID/tpu-hello-world:v1; then
-  echo "Docker image pulled successfully."
-else
-  echo "Failed to pull with regular Docker permissions. Trying with sudo..."
-  sudo docker pull gcr.io/$PROJECT_ID/tpu-hello-world:v1
-  if [ \$? -eq 0 ]; then
-    echo "Docker image pulled successfully with sudo."
-  else
-    echo "ERROR: Failed to pull Docker image."
-    echo "Please check:"
-    echo "1. Docker credentials are configured"
-    echo "2. Image exists in GCR: gcr.io/$PROJECT_ID/tpu-hello-world:v1"
-    echo "3. Service account has correct permissions"
-    exit 1
-  fi
-fi
-EOF
-
-# Copy the pull script to the TPU VM
-gcloud compute tpus tpu-vm scp "$TEMP_SCRIPT" "$TPU_NAME":/tmp/pull_image.sh \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID" \
-    --worker=all
-
-# Make it executable and run it
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" \
-    --project="$PROJECT_ID" \
-    --worker=all \
-    --command="chmod +x /tmp/pull_image.sh && /tmp/pull_image.sh"
-
-# Clean up temporary file
-rm "$TEMP_SCRIPT"
-
-log "Docker image setup completed."
-log "TPU Setup Complete."
+log_success "TPU Setup Complete. TPU '$TPU_NAME' is ready." 

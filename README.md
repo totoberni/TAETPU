@@ -2,7 +2,9 @@
 
 This repository contains a comprehensive framework for conducting Transformer model ablation experiments on Google Cloud TPUs. It provides the necessary infrastructure to set up, run, and analyze experiments that examine the impact of various Transformer architecture components on model performance.
 
-## Project Purpose
+## 0. Project Premise and Structure
+
+### Project Purpose
 
 The goal of this project is to systematically study how different components of Transformer architectures affect performance, efficiency, and behavior. Through ablation studies, we can gain insights into:
 
@@ -11,9 +13,7 @@ The goal of this project is to systematically study how different components of 
 3. Potential optimizations for specific use cases and hardware (particularly TPUs)
 4. The minimum viable architecture needed for specific performance thresholds
 
-These insights are valuable for both developing more efficient models and deepening our theoretical understanding of why Transformers work so well.
-
-## What Are Ablation Studies?
+### What Are Ablation Studies?
 
 Ablation studies involve systematically removing, replacing, or modifying components of a model to understand their contribution to the overall performance. In the context of Transformers, we might:
 
@@ -23,9 +23,7 @@ Ablation studies involve systematically removing, replacing, or modifying compon
 - Replace layer normalization with alternatives
 - Adjust positional encoding schemes
 
-By measuring the impact of these changes, we can identify which components are most critical and which might be simplified or removed with minimal performance loss.
-
-## Why TPUs?
+### Why TPUs?
 
 Transformer models are computationally intensive to train and evaluate. Google Cloud TPUs provide:
 
@@ -34,80 +32,7 @@ Transformer models are computationally intensive to train and evaluate. Google C
 3. Scalability for large models and datasets
 4. Cost efficiencies for long-running experiments
 
-This repository provides a complete environment for deploying and running these experiments on TPU infrastructure.
-
-## Enhanced Monitoring & Logging
-
-This framework includes comprehensive monitoring and logging capabilities specifically designed for TPU-based experiments:
-
-### Key Features
-
-1. **TPU Performance Metrics**
-   - Track compilation time, execution time, and memory usage
-   - Monitor TPU utilization and device health
-   - Capture XLA operations and optimization statistics
-
-2. **Experiment Tracking**
-   - Compatible with TensorBoard and Weights & Biases
-   - Automatic metrics collection and visualization
-   - Experiment comparisons and history tracking
-
-3. **Profiling Tools**
-   - Memory profiling to identify leaks and inefficiencies
-   - Operation timing for bottleneck identification
-   - Flame graphs for CPU/Python performance analysis
-
-4. **Dashboard Visualization**
-   - Generate HTML reports with interactive visualizations
-
-### TPU Monitoring Scripts
-
-The repository includes dedicated scripts for monitoring TPU performance and resource utilization:
-
-```bash
-# Start monitoring a TPU VM
-./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME
-
-# Start monitoring a TPU VM and specific Python process
-./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME PYTHON_PID
-
-# Stop monitoring
-./dev/mgt/monitor_tpu.sh stop
-```
-
-These monitoring scripts provide:
-- Continuous tracking of TPU state and health
-- Collection of TPU utilization metrics
-- Flame graph generation for Python processes
-
-```python
-# Initialize logging and monitoring
-from utils.tpu_logging import setup_logger, TPUMetricsLogger
-from utils.profiling import ModelProfiler
-from utils.experiment import ExperimentTracker
-
-# Set up logging with file output
-logger = setup_logger(log_level="INFO", log_file="logs/experiment.log")
-
-# Create experiment tracker
-experiment = ExperimentTracker(
-    experiment_name="transformer_ablation", 
-    use_tensorboard=True,
-    use_wandb=False  # Set to True to enable W&B
-)
-
-# Profile model performance
-profiler = ModelProfiler(model, log_dir="logs/profiler")
-profiler.profile_memory("Before training")
-
-# Log TPU metrics during training
-tpu_logger = TPUMetricsLogger()
-tpu_logger.log_metrics(step=current_step)
-```
-
-## Project Structure
-
-The project has been fully refactored to ensure that all scripts can be called from any directory, with proper path resolution and consistent logging.
+### Project Structure
 
 ```
 .
@@ -130,7 +55,6 @@ The project has been fully refactored to ensure that all scripts can be called f
 │   │   ├── mount_run_scrap.sh    # All-in-one script to mount, run, and clean up
 │   │   ├── synch.sh              # Enhanced script for syncing and watching code changes (CI/CD)
 │   │   └── monitor_tpu.sh        # Self-contained TPU monitoring script
-│   └── README.md                 # Documentation for the development workflow
 ├── src/                          # Source code for the project
 │   ├── setup/                    # Setup scripts and configuration
 │   │   ├── scripts/              # Scripts for setting up the environment
@@ -142,6 +66,7 @@ The project has been fully refactored to ensure that all scripts can be called f
 │   │   │   └── verify.py         # Python verification utility for TPU setup
 │   │   └── docker/               # Docker configuration
 │   │       ├── Dockerfile        # Docker image definition
+│   │       ├── entrypoint.sh     # Container entry point script
 │   │       └── requirements.txt  # Python dependencies
 │   ├── teardown/                 # Scripts for resource cleanup
 │   │   ├── teardown_bucket.sh    # Script to delete GCS bucket
@@ -151,26 +76,28 @@ The project has been fully refactored to ensure that all scripts can be called f
 │       └── common_logging.sh     # Common bash utilities and logging functions
 └── source/                       # Configuration and credential files
     ├── .env                      # Environment variables and configuration
+    ├── tpu.env                   # TPU-specific environment variables
+    ├── back.env                  # Backend configuration for monitoring
     └── service-account.json      # Service account key (replace with your own)
 ```
 
-## Setting Up the Environment
+## 1. Setting Up the Environment
 
-Before running transformer ablation experiments, you'll need to set up the Google Cloud TPU environment. The following instructions walk you through this process.
+Before running transformer ablation experiments, you need to set up the Google Cloud TPU environment. The following instructions walk you through this process.
 
 ### Configuration
 
-Before running the scripts, create a `source/.env` file with your specific settings by copying from the template:
+Create and configure your environment variables:
 
 ```bash
 # Copy the template (don't edit the template directly)
 cp source/.env.template source/.env
 
-# Then edit your .env file with your specific settings
+# Edit your .env file with your specific settings
 nano source/.env  # or use your preferred editor
 ```
 
-Your `.env` file should contain the following settings (the template provides placeholders):
+Your `.env` file should contain the following settings:
 
 ```bash
 # Project Configuration
@@ -180,7 +107,7 @@ TPU_ZONE=europe-west4-a
 BUCKET_REGION=europe-west4
 TPU_NAME=your-tpu-name
 TPU_TYPE=v2-8
-# Note: The TPU runtime version is now fixed to tpu-ubuntu2204-base in the setup script
+RUNTIME_VERSION=tpu-ubuntu2204-base
 
 # Cloud Storage
 BUCKET_NAME=your-bucket-name
@@ -188,32 +115,13 @@ BUCKET_NAME=your-bucket-name
 # Service Account details
 SERVICE_ACCOUNT_JSON=your-service-account.json
 SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
-
-# PyTorch Configuration
-INSTALL_PYTORCH=true
 ```
 
 > **IMPORTANT SECURITY NOTE:** The `.env` file and service account key files are automatically excluded from version control by `.gitignore`. Never commit these files to the repository as they contain sensitive information.
 
-### Security Best Practices
+### Complete Workflow for TPU Setup
 
-To protect your Google Cloud credentials:
-
-1. **Never commit service account keys**: Keep your service account JSON files out of version control
-2. **Use `.env.template` for documentation**: Only commit the template, not your actual `.env` file
-3. **Restrict service account permissions**: Follow the principle of least privilege
-4. **Rotate keys regularly**: Create new service account keys periodically
-5. **Monitor for exposed credentials**: Set up alerts for potential key exposure
-6. **Private repositories**: Keep code with credential handling in private repositories
-
-If you think a key may have been exposed:
-1. Immediately revoke the key in Google Cloud Console
-2. Generate a new key and update your local `.env` file
-3. Check commit history to ensure no credentials were accidentally committed
-
-### Complete Workflow for TPU Setup and Execution
-
-Follow these steps in order to set up your TPU environment and prepare for experiments:
+Follow these steps in order to set up your TPU environment:
 
 #### 1. Preparation
 
@@ -270,65 +178,30 @@ Verify that PyTorch and XLA are properly installed and can access the TPU:
 ./src/setup/scripts/verify_setup.sh
 ```
 
-### TPU Monitoring Tools
+## 2. Mounting Code (CI/CD)
 
-The framework includes dedicated monitoring scripts for TPU performance:
-
-```bash
-# Start TPU monitoring in the background (run from any directory)
-./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME
-
-# Start TPU monitoring and also monitor a Python process
-./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME PYTHON_PID
-
-# Stop all monitoring services
-./dev/mgt/monitor_tpu.sh stop
-```
-
-These monitoring scripts will generate logs and performance data in the `logs/` directory, which can be analyzed using the dashboard utilities.
-
-### Development Workflow
-
-For rapid development and testing without rebuilding the Docker image, see the `dev/README.md` for detailed instructions. Here's a quick overview:
-
-```bash
-# Mount and run the example monitoring script (can be run from any directory)
-./dev/mgt/mount_run_scrap.sh example_monitoring.py
-
-# Or use individual commands for more control
-./dev/mgt/mount.sh example_monitoring.py
-./dev/mgt/run.sh example_monitoring.py
-./dev/mgt/scrap.sh example_monitoring.py
-```
-
-The development workflow allows you to:
-1. Create or modify Python files in the `dev/src` directory
-2. Mount them to the TPU VM using the `mount.sh` script
-3. Execute them on the TPU VM using the `run.sh` script
-4. Clean up using the `scrap.sh` script when done
-
-### Clean Up Resources When Finished
-
-When you're done, clean up resources in this order:
-
-```bash
-# Delete the TPU VM
-./src/teardown/teardown_tpu.sh
-
-# Delete the Docker images (local and GCR)
-./src/teardown/teardown_image.sh
-
-# Delete the GCS bucket (will prompt for confirmation)
-./src/teardown/teardown_bucket.sh
-```
-
-## CI/CD Development Workflow
-
-This project implements a simplified CI/CD workflow for TPU development, allowing for rapid iteration without needing to rebuild Docker images for every code change.
+This project implements a simplified CI/CD workflow for TPU development, allowing for rapid iteration without rebuilding Docker images for every code change.
 
 ### Development vs. Production
 
 **Important Note**: The `dev/` folder and its contents are designed for development only and **will not be included in the production deployment**. During development, code can be quickly synced and tested; for production, a clean Docker image is built without these development tools.
+
+### Mounting Files to TPU VM
+
+The `mount.sh` script copies Python files from your local development environment to the TPU VM, making them available for execution:
+
+```bash
+# Mount a specific file to the TPU VM (can be run from any directory)
+./dev/mgt/mount.sh example_monitoring.py
+
+# Mount multiple files
+./dev/mgt/mount.sh model.py train.py utils.py
+
+# Mount the utils directory (needed for importing utility modules)
+./dev/mgt/mount.sh --utils
+```
+
+The mounted files are stored in `/tmp/dev/src/` on the TPU VM, and the script validates that the transfer was successful.
 
 ### Continuous Code Synchronization
 
@@ -360,43 +233,168 @@ This enables:
 3. Continuous feedback during development
 4. Support for automated testing workflows
 
-### CI/CD Pipeline Integration
+## 3. Execution
 
-The development tools can be integrated into CI/CD pipelines:
+### Running Files on TPU VM
 
-1. **Development Phase**:
-   - Use `synch.sh --watch` during active development
-   - Test changes immediately on the TPU VM
+The `run.sh` script executes mounted Python files inside a Docker container on the TPU VM, with TPU acceleration enabled:
 
-2. **Testing Phase**:
-   - Use `mount_run_scrap.sh` to validate changes before committing
-   - Automated tests can be run directly on the TPU VM
+```bash
+# Run a mounted file on the TPU VM
+./dev/mgt/run.sh example_monitoring.py
 
-3. **Deployment Phase**:
-   - Build a clean Docker image without development tools
-   - Deploy to production TPU environment
+# Run multiple files sequentially
+./dev/mgt/run.sh preprocess.py train.py
 
-For more detailed information on the CI/CD workflow, see the [dev/README.md](dev/README.md) documentation.
+# Run a file with arguments
+./dev/mgt/run.sh model.py --epochs 10 --batch_size 32
+```
 
-## Recent Improvements
+This script will:
+- Check if each file is mounted and mount it if not found
+- Automatically mount the utils directory if needed
+- Try running with regular Docker permissions first, then fall back to sudo if needed
+- Display logs in real-time with color formatting
 
-The codebase has been refactored with the following improvements:
+### All-in-One Workflow
 
-1. **Absolute Path References**: All scripts now use absolute path resolution to determine their location, allowing them to be called from any directory in the project.
+The `mount_run_scrap.sh` script provides a convenient workflow that combines mounting, running, and optional cleanup:
 
-2. **Centralized Logging**: Most scripts utilize a common logging framework from `common.sh` for consistent output styling and error handling.
+```bash
+# Mount, run, and keep example_monitoring.py
+./dev/mgt/mount_run_scrap.sh example_monitoring.py
 
-3. **Environment Variable Validation**: Scripts now properly validate required environment variables before execution.
+# Mount, run, and clean up model.py when finished
+./dev/mgt/mount_run_scrap.sh model.py --clean
 
-4. **Enhanced Error Handling**: Better error reporting and graceful failures when prerequisites aren't met.
+# Process multiple files sequentially
+./dev/mgt/mount_run_scrap.sh preprocess.py train.py
 
-5. **Self-Contained Development Scripts**: The scripts in `dev/mgt` are now self-contained with their own logging functions, avoiding cross-directory dependencies.
+# Pass arguments to the Python script
+./dev/mgt/mount_run_scrap.sh train.py --epochs 10
+```
 
-6. **Improved Security**: Scripts properly check for and use service account credentials when available.
+### TPU Monitoring Tools
 
-7. **Consistent Configuration**: All scripts use the same approach to loading and validating configuration.
+The framework includes dedicated monitoring scripts for TPU performance:
 
-## System Requirements
+```bash
+# Start TPU monitoring in the background
+./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME
+
+# Start TPU monitoring and also monitor a Python process
+./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME PYTHON_PID
+
+# Stop all monitoring services
+./dev/mgt/monitor_tpu.sh stop
+```
+
+These monitoring scripts will generate logs and performance data in the `logs/` directory, which can be analyzed using the dashboard utilities.
+
+## 4. Scrapping Code
+
+### Removing Files from TPU VM
+
+The `scrap.sh` script cleans up files from the TPU VM when you're done with them:
+
+```bash
+# Remove a specific file from the TPU VM
+./dev/mgt/scrap.sh example_monitoring.py
+
+# Remove multiple files from the TPU VM
+./dev/mgt/scrap.sh model.py train.py
+
+# Remove all files from the TPU VM
+./dev/mgt/scrap.sh --all
+```
+
+### Clean Up Resources When Finished
+
+When you're done with your TPU resources, clean up in this order:
+
+```bash
+# Delete the TPU VM
+./src/teardown/teardown_tpu.sh
+
+# Delete the Docker images (local and GCR)
+./src/teardown/teardown_image.sh
+
+# Delete the GCS bucket (will prompt for confirmation)
+./src/teardown/teardown_bucket.sh
+```
+
+## 5. Further Instructions
+
+### Enhanced Monitoring & Logging
+
+This framework includes comprehensive monitoring and logging capabilities specifically designed for TPU-based experiments:
+
+#### Key Features
+
+1. **TPU Performance Metrics**
+   - Track compilation time, execution time, and memory usage
+   - Monitor TPU utilization and device health
+   - Capture XLA operations and optimization statistics
+
+2. **Experiment Tracking**
+   - Compatible with TensorBoard and Weights & Biases
+   - Automatic metrics collection and visualization
+   - Experiment comparisons and history tracking
+
+3. **Profiling Tools**
+   - Memory profiling to identify leaks and inefficiencies
+   - Operation timing for bottleneck identification
+   - Flame graphs for CPU/Python performance analysis
+
+#### Example Monitoring Usage
+
+```python
+# Import utilities
+from utils.tpu_logging import setup_logger, TPUMetricsLogger
+from utils.profiling import ModelProfiler, profile_function
+from utils.experiment import ExperimentTracker
+
+# Set up logger with file output
+logger = setup_logger(log_level="INFO", log_file="logs/experiment.log")
+
+# Track experiment metrics
+experiment = ExperimentTracker(
+    experiment_name="transformer_ablation", 
+    use_tensorboard=True,
+    use_wandb=False  # Set to True to enable W&B
+)
+
+# Profile model performance
+profiler = ModelProfiler(model, log_dir="logs/profiler")
+profiler.profile_memory("Before training")
+
+# Log TPU metrics during training
+tpu_logger = TPUMetricsLogger()
+tpu_logger.log_metrics(step=current_step)
+```
+
+### Debugging Techniques
+
+For debugging complex TPU issues:
+
+1. **Start with small examples**: Use `dev/src/example.py` as a template
+2. **Add debug logging**: Use the logger utilities from `utils.tpu_logging`
+3. **Monitor TPU state**: Run `monitor_tpu.sh` to track resource usage
+4. **Test incrementally**: Test small parts before running full code
+5. **Profile performance**: Use profiling tools to identify bottlenecks
+6. **Enable verbose XLA output**: Set appropriate debug levels in `tpu.env`
+
+### Performance Considerations
+
+For optimal development performance:
+
+- **Minimize Data Size**: Use small test datasets during development
+- **Reduce Model Size**: Use smaller model configurations for faster iteration
+- **Cache Preprocessing**: Avoid repeating expensive preprocessing steps
+- **Profile Early**: Use the TPU profiler to identify bottlenecks early in development
+- **Monitor Memory**: Use the memory profiler to catch memory leaks before they become an issue
+
+### System Requirements
 
 - Docker Desktop installed and running
 - Google Cloud SDK installed and configured 
@@ -405,13 +403,7 @@ The codebase has been refactored with the following improvements:
 - Service account with appropriate permissions
 - Git for version control
 
-## Acknowledgments
-
-- Google Cloud TPU team for their documentation and support
-- PyTorch XLA team for enabling PyTorch on TPUs
-- The broader research community for advancing our understanding of Transformer models
-
-## Additional Resources
+### Additional Resources
 
 For more information, refer to:
 - [Google Cloud TPU Documentation](https://cloud.google.com/tpu/docs)

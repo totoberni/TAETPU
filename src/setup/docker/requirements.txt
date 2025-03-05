@@ -1,33 +1,21 @@
-# Core PyTorch & TPU
-torch>=2.0.0
-# torch-xla[tpu]>=2.0.0  # Removed as we install it separately in the Dockerfile
-cloud-tpu-client>=0.10
-google-cloud-storage>=2.0.0
+# PyTorch and XLA for Cloud TPU (matched versions for compatibility)
+torch==2.6.0
+torch_xla[tpu]==2.6.0
+libtpu==0.0.10.1
 
-# Monitoring & Logging
-tensorboard>=2.13.0
-torch-tb-profiler>=0.4.1
-loguru>=0.7.0
-rich>=13.4.2
-tqdm>=4.65.0
+# Monitoring and Profiler tools
+tensorboard==2.13.0         # For TensorBoard logging (SummaryWriter)
+torch_tb_profiler==0.4.3    # PyTorch TensorBoard profiler plugin
+psutil==5.9.5               # System resource monitoring from Python
 
-# Experiment Tracking
-wandb>=0.15.5
+# API Framework
+Flask==2.3.3                # Lightweight web framework for serving API
 
-# Performance Analysis
-py-spy>=0.3.14
-pytorch_memlab>=0.2.4
-psutil>=5.9.5
-google-cloud-monitoring>=2.14.1
+# Google Cloud integration
+google-cloud-storage==2.10.0    # GCS client for data logging
+google-cloud-monitoring==2.11.0 # Cloud Monitoring client for TPU metrics
 
-# Data Processing
-numpy>=1.24.0
-pandas>=2.0.0
-
-# Visualization & Dashboards
-matplotlib>=3.7.0
-seaborn>=0.12.0
-
-# Utilities
-pydantic>=2.0.0
-PyYAML>=6.0 
+# Data manipulation and datasets
+datasets==2.14.0            # Hugging Face datasets library for data loading/processing
+numpy>=1.24.0               # Fundamental package for numerical computing
+pandas>=2.0.0               # Data analysis and manipulation tool
