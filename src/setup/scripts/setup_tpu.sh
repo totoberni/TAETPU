@@ -77,9 +77,37 @@ log "Installing packages on TPU VM..."
 log "Installing optimum-tpu package..."
 gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="pip install optimum-tpu -f https://storage.googleapis.com/libtpu-releases/index.html"
 
-# Transfer tpu.env to the TPU VM
+# Create a temporary file with TPU environment variables
+log "Creating temporary TPU environment file for transfer..."
+TEMP_TPU_ENV=$(mktemp)
+cat "$TPU_ENV_FILE" > "$TEMP_TPU_ENV"
+
+# Transfer tpu.env to the TPU VM using the temporary file
 log "Transferring TPU environment configuration..."
-gcloud compute tpus tpu-vm scp "$TPU_ENV_FILE" "$TPU_NAME:~/tpu.env" --zone="$TPU_ZONE"
+if gcloud compute tpus tpu-vm scp "$TEMP_TPU_ENV" "$TPU_NAME:~/tpu.env" --zone="$TPU_ZONE"; then
+    log_success "TPU environment file transferred successfully"
+else
+    log_warning "Failed to transfer TPU environment file using SCP"
+    
+    # Alternative approach: Generate the file on the TPU VM directly
+    log "Trying alternative approach: Creating TPU environment file directly on the VM..."
+    # Create a command that will generate the tpu.env file on the remote machine
+    REMOTE_CMD="cat > ~/tpu.env << 'EOF'\n"
+    while IFS= read -r line; do
+        REMOTE_CMD+="${line}\n"
+    done < "$TPU_ENV_FILE"
+    REMOTE_CMD+="EOF"
+    
+    # Execute the command to create the file on the remote machine
+    if gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="$REMOTE_CMD"; then
+        log_success "TPU environment file created directly on the VM"
+    else
+        log_error "Failed to create TPU environment file on the VM. Continuing without TPU environment configuration."
+    fi
+fi
+
+# Clean up temporary file
+rm -f "$TEMP_TPU_ENV"
 
 # Set ENV variables on the TPU VM
 log "Setting environment variables on TPU VM..."

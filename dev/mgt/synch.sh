@@ -9,6 +9,9 @@ SRC_DIR="$PROJECT_DIR/dev/src"
 # --- IMPORT COMMON FUNCTIONS ---
 source "$PROJECT_DIR/src/utils/common_logging.sh"
 
+# --- MAIN SCRIPT ---
+init_script 'TPU File Synchronization'
+
 show_usage() {
   echo "Usage: $0 [--restart] [--watch] [--utils] [--specific file1.py file2.py]"
   echo ""

@@ -1,21 +1,22 @@
-# PyTorch and XLA for Cloud TPU (matched versions for compatibility)
-torch==2.6.0
-torch_xla[tpu]==2.6.0
-libtpu==0.0.10.1
+# PyTorch and TPU dependencies
+torch~=2.1.0
+torch_xla[tpu]~=2.1.0
 
-# Monitoring and Profiler tools
-tensorboard==2.13.0         # For TensorBoard logging (SummaryWriter)
-torch_tb_profiler==0.4.3    # PyTorch TensorBoard profiler plugin
-psutil==5.9.5               # System resource monitoring from Python
+# Machine Learning & Data Science
+numpy>=1.24.0
+pandas>=2.0.0
 
-# API Framework
-Flask==2.3.3                # Lightweight web framework for serving API
+# Monitoring & Profiling
+tensorboard==2.13.0
+torch_tb_profiler==0.4.3
+psutil==5.9.5
 
-# Google Cloud integration
-google-cloud-storage==2.10.0    # GCS client for data logging
-google-cloud-monitoring==2.11.0 # Cloud Monitoring client for TPU metrics
+# Web & API
+Flask==2.3.3
 
-# Data manipulation and datasets
-datasets==2.14.0            # Hugging Face datasets library for data loading/processing
-numpy>=1.24.0               # Fundamental package for numerical computing
-pandas>=2.0.0               # Data analysis and manipulation tool
+# Google Cloud
+google-cloud-storage==2.10.0
+google-cloud-monitoring==2.11.0
+
+# Dataset handling
+datasets==2.14.0

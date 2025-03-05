@@ -10,10 +10,11 @@ source "$PROJECT_DIR/src/utils/common_logging.sh"
 # --- MAIN SCRIPT ---
 init_script "TPU zone availability check"
 ENV_FILE="$PROJECT_DIR/source/.env"
-load_env_vars "$ENV_FILE"
+
 
 # Validate required environment variables
 check_env_vars "PROJECT_ID" "TPU_REGION" "TPU_TYPE" || exit 1
+load_env_vars "$ENV_FILE"
 
 # Display configuration
 display_config "PROJECT_ID" "TPU_REGION" "TPU_TYPE"

@@ -82,6 +82,10 @@ fi
 if [ -f "$TPU_ENV_FILE" ]; then
   log "Copying tpu.env to Docker build context..."
   cp "$TPU_ENV_FILE" "$PROJECT_DIR/src/setup/docker/tpu.env"
+  log_success "TPU environment configuration copied to Docker build context"
+else
+  log_warning "TPU environment file not found at $TPU_ENV_FILE"
+  log_warning "Docker container may not have optimal TPU configuration"
 fi
 
 # 1. Build Docker image
@@ -92,8 +96,8 @@ CURRENT_DIR=$(pwd)
 log "Changing to Docker directory: $PROJECT_DIR/src/setup/docker"
 cd "$PROJECT_DIR/src/setup/docker"
 
-# Build the Docker image
-if docker build --privileged -t tpu-hello-world:v1 .; then
+# Build the Docker image with TPU-specific index URL
+if docker build --build-arg PIP_EXTRA_INDEX_URL=https://storage.googleapis.com/libtpu-releases/index.html -t tpu-hello-world:v1 .; then
   log_success "Docker image built successfully"
 else
   log_error "Failed to build Docker image"

@@ -7,14 +7,21 @@ ENV PYTHONUNBUFFERED=1
 # Install system-level dependencies for PyTorch/XLA and performance monitoring
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas-dev \ 
+    curl \
+    wget \
+    git \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory for the application
 WORKDIR /app
 
+# Accept build argument for PIP_EXTRA_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
+
 # Install Python dependencies separately to leverage caching
 COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt ${PIP_EXTRA_INDEX_URL:+-f $PIP_EXTRA_INDEX_URL}
 
 # Copy application code and entrypoint script into the container
 COPY . /app
@@ -24,10 +31,6 @@ RUN chmod +x /app/entrypoint.sh
 
 # Environment variables for TPU execution (using PJRT runtime for Cloud TPU)
 ENV PJRT_DEVICE=TPU
-
-# (Optional for older TPU versions: XRT runtime env vars)
-# ENV TPU_NUM_DEVICES=8 
-# ENV XRT_TPU_CONFIG="localservice;0;localhost:51011"
 
 # Expose Flask (5000) and TensorBoard (6006) ports
 EXPOSE 5000 6006

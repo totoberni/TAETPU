@@ -10,10 +10,11 @@ source "$PROJECT_DIR/src/utils/common_logging.sh"
 # --- MAIN SCRIPT ---
 init_script 'GCS bucket setup'
 ENV_FILE="$PROJECT_DIR/source/.env"
-load_env_vars "$ENV_FILE"
+
 
 # Validate required environment variables
 check_env_vars "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION" || exit 1
+load_env_vars "$ENV_FILE"
 
 # Display configuration
 display_config "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION"
