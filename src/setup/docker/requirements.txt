@@ -1,10 +1,7 @@
-# PyTorch and TPU dependencies
-torch~=2.1.0
-torch_xla[tpu]~=2.1.0
-
-# Machine Learning & Data Science
-numpy>=1.24.0
-pandas>=2.0.0
+# PyTorch and TPU dependencies (matched versions to ensure compatibility)
+torch==2.1.2
+torch-xla[tpu]==2.1.0
+# Remove conflicting libtpu specification, it will be installed by torch-xla[tpu]
 
 # Monitoring & Profiling
 tensorboard==2.13.0
@@ -20,3 +17,9 @@ google-cloud-monitoring==2.11.0
 
 # Dataset handling
 datasets==2.14.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# HTTP library for Monitoring & Profiling
+requests==2.31.0
+urllib3<2.1.0  # Ensure compatibility with requests

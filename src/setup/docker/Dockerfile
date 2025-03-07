@@ -19,9 +19,13 @@ WORKDIR /app
 # Accept build argument for PIP_EXTRA_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL
 
-# Install Python dependencies separately to leverage caching
+# Install Python dependencies all at once
 COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt ${PIP_EXTRA_INDEX_URL:+-f $PIP_EXTRA_INDEX_URL}
+RUN pip install --no-cache-dir \
+    --timeout=300 \
+    --retries=5 \
+    -r requirements.txt \
+    ${PIP_EXTRA_INDEX_URL:+-f $PIP_EXTRA_INDEX_URL}
 
 # Copy application code and entrypoint script into the container
 COPY . /app

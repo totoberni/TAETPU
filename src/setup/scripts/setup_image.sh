@@ -88,7 +88,15 @@ else
   log_warning "Docker container may not have optimal TPU configuration"
 fi
 
-# 1. Build Docker image
+# Create a temporary file with higher pip timeout to handle slow downloads
+PIP_CONF=$(mktemp)
+cat > "$PIP_CONF" << EOF
+[global]
+timeout = 300
+retries = 5
+EOF
+
+# 1. Build Docker image with increased timeout and retries
 log "Building Docker image..."
 # Save current directory
 CURRENT_DIR=$(pwd)
@@ -96,15 +104,24 @@ CURRENT_DIR=$(pwd)
 log "Changing to Docker directory: $PROJECT_DIR/src/setup/docker"
 cd "$PROJECT_DIR/src/setup/docker"
 
-# Build the Docker image with TPU-specific index URL
-if docker build --build-arg PIP_EXTRA_INDEX_URL=https://storage.googleapis.com/libtpu-releases/index.html -t tpu-hello-world:v1 .; then
+# Build the Docker image with additional arguments for better stability
+if docker build \
+  --build-arg PIP_EXTRA_INDEX_URL=https://storage.googleapis.com/libtpu-releases/index.html \
+  --build-arg PIP_CONF="$(cat $PIP_CONF)" \
+  --network=host \
+  --no-cache \
+  -t tpu-hello-world:v1 .; then
   log_success "Docker image built successfully"
 else
   log_error "Failed to build Docker image"
   # Return to original directory before exiting
   cd "$CURRENT_DIR"
+  rm -f "$PIP_CONF"  # Clean up temporary file
   exit 1
 fi
+
+# Clean up temporary file
+rm -f "$PIP_CONF"
 
 # Return to original directory
 cd "$CURRENT_DIR"
