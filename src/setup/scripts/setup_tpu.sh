@@ -5,7 +5,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common_logging.sh"
+source "$PROJECT_DIR/src/utils/common.sh"
 
 # --- MAIN SCRIPT ---
 init_script 'TPU VM setup'
@@ -50,23 +50,22 @@ fi
 
 # Configure Docker authentication directly on the TPU VM
 log "Configuring Docker authentication on TPU VM..."
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="gcloud auth configure-docker gcr.io --quiet"
+vmssh "gcloud auth configure-docker eu.gcr.io --quiet"
 log_success "Docker authentication configured"
 
 # Pull Docker image on TPU VM
 log "Pulling Docker image on TPU VM..."
-IMAGE_NAME="gcr.io/${PROJECT_ID}/tpu-hello-world:v1"
-PULL_CMD="docker pull ${IMAGE_NAME}"
-
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="${PULL_CMD}"
+IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
+vmssh "sudo docker pull ${IMAGE_NAME}"
 log_success "Docker image pulled successfully on TPU VM"
 
 # Prepare Docker run command
-RUN_CMD="docker run --privileged --rm \
-  -v /dev:/dev \
-  -v /lib/libtpu.so:/lib/libtpu.so \
-  -p 5000:5000 \
-  -p 6006:6006 \
+log "Preparing Docker run command..."
+RUN_CMD="sudo docker run --privileged --rm \\
+  -v /dev:/dev \\
+  -v /lib/libtpu.so:/lib/libtpu.so \\
+  -p 5000:5000 \\
+  -p 6006:6006 \\
   ${IMAGE_NAME}"
 
 log_success "Setup completed successfully!"

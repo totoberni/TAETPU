@@ -5,89 +5,78 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common_logging.sh"
+source "$PROJECT_DIR/src/utils/common.sh"
 
 # --- MAIN SCRIPT ---
-init_script 'Docker image teardown'
+init_script 'Docker Image Teardown'
 ENV_FILE="$PROJECT_DIR/source/.env"
 
-if [ -f "$ENV_FILE" ]; then
-  load_env_vars "$ENV_FILE"
-else
-  log_error "ERROR: .env file not found at $ENV_FILE"
-  exit 1
-fi
+# Load environment variables
+log "Loading environment variables..."
+load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
 check_env_vars "PROJECT_ID" || exit 1
 
-# Display configuration 
-display_config "PROJECT_ID"
-log "- Image Name: tpu-hello-world"
-log "- Image Tag: v1"
-
-# Set up authentication
+# Set up authentication locally
 setup_auth
 
-# Check Docker is installed for local cleanup
-if command -v docker &> /dev/null; then
-  # Clean up local Docker images
-  log "Checking for local Docker image..."
-  if docker image inspect tpu-hello-world:v1 &> /dev/null; then
-    log "Removing local Docker image..."
-    if docker rmi tpu-hello-world:v1 -f; then
-      log_success "Local Docker image removed successfully"
-    else
-      log_warning "Failed to remove local Docker image"
-    fi
-  else
-    log "Local Docker image not found. Skipping local cleanup."
-  fi
+# Define Docker image path
+IMAGE_NAME="gcr.io/${PROJECT_ID}/tae-tpu:v1"
+EU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
 
-  # Check for GCR-tagged local image
-  if docker image inspect gcr.io/${PROJECT_ID}/tpu-hello-world:v1 &> /dev/null; then
-    log "Removing local GCR-tagged Docker image..."
-    if docker rmi gcr.io/${PROJECT_ID}/tpu-hello-world:v1 -f; then
-      log_success "Local GCR-tagged Docker image removed successfully"
+# Check if TPU exists and clean up there first
+if [[ -n "$TPU_NAME" && -n "$TPU_ZONE" ]]; then
+    log "Checking if TPU '$TPU_NAME' exists..."
+    if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
+        log "TPU VM exists. Cleaning up Docker images on TPU VM..."
+        
+        # Remove Docker image from TPU VM
+        vmssh "docker rmi $IMAGE_NAME $EU_IMAGE_NAME || true"
+        
+        log_success "Cleaned up Docker images on TPU VM"
     else
-      log_warning "Failed to remove local GCR-tagged Docker image"
+        log "TPU VM does not exist or is not accessible. Skipping TPU cleanup."
     fi
-  else
-    log "Local GCR-tagged Docker image not found. Skipping."
-  fi
 else
-  log_warning "Docker not found. Skipping local image cleanup."
+    log "TPU_NAME or TPU_ZONE not set. Skipping TPU cleanup."
 fi
 
-# Clean up Google Container Registry image
-log "Checking for GCR image..."
-if gcloud container images describe gcr.io/${PROJECT_ID}/tpu-hello-world:v1 &> /dev/null; then
-  log "Removing image from Google Container Registry..."
-  
-  # Prompt user for confirmation
-  read -p "This will DELETE the Docker image from GCR. Continue? (y/n): " -r
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    if gcloud container images delete gcr.io/${PROJECT_ID}/tpu-hello-world:v1 --force-delete-tags --quiet; then
-      log_success "GCR image removed successfully"
-    else
-      log_warning "Failed to remove image from GCR"
-    fi
-  else
-    log "GCR image deletion cancelled by user"
-  fi
-else
-  log "Image not found in GCR. Skipping remote cleanup."
+# Check if the image exists in GCR
+log "Checking if Docker image exists in Container Registry..."
+
+# Check for the image in GCR
+GCR_CHECK=$(gcloud container images list --repository=gcr.io/${PROJECT_ID} --format="value(name)" | grep -c "tae-tpu" || true)
+EU_GCR_CHECK=$(gcloud container images list --repository=eu.gcr.io/${PROJECT_ID} --format="value(name)" | grep -c "tae-tpu" || true)
+
+if [[ "$GCR_CHECK" -eq 0 && "$EU_GCR_CHECK" -eq 0 ]]; then
+    log_warning "Docker image not found in Container Registry. Nothing to delete."
+    exit 0
 fi
 
-# Offer to run a Docker system prune
-log "Docker system prune can remove all unused containers, networks, images (both dangling and unreferenced), and optionally, volumes."
-read -p "Would you like to run 'docker system prune' to clean up unused Docker resources? (y/n): " -r
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-  log "Running Docker system prune..."
-  docker system prune -f
-  log_success "Docker cleanup completed"
-else
-  log "Docker system prune skipped"
+# Confirm deletion
+read -p "Are you sure you want to delete the Docker image(s)? (y/n): " confirm
+if [[ "$confirm" != "y" ]]; then
+    log "Deletion cancelled."
+    exit 0
 fi
 
-log "Docker image teardown process completed." 
+# Delete the Docker image from GCR
+if [[ "$GCR_CHECK" -gt 0 ]]; then
+    log "Deleting Docker image from gcr.io..."
+    gcloud container images delete "$IMAGE_NAME" --quiet
+    log_success "Docker image deleted from gcr.io"
+fi
+
+if [[ "$EU_GCR_CHECK" -gt 0 ]]; then
+    log "Deleting Docker image from eu.gcr.io..."
+    gcloud container images delete "$EU_IMAGE_NAME" --quiet
+    log_success "Docker image deleted from eu.gcr.io"
+fi
+
+# Clean up local Docker images
+log "Cleaning up local Docker images..."
+docker rmi "$IMAGE_NAME" "$EU_IMAGE_NAME" 2>/dev/null || true
+
+log_success "Docker image teardown completed successfully"
+exit 0 

@@ -5,45 +5,50 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common_logging.sh"
+source "$PROJECT_DIR/src/utils/common.sh"
 
 # --- MAIN SCRIPT ---
-init_script 'GCS bucket teardown'
+init_script 'GCS Bucket Teardown'
 ENV_FILE="$PROJECT_DIR/source/.env"
+
+# Load environment variables
+log "Loading environment variables..."
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-check_env_vars "BUCKET_NAME" || exit 1
+check_env_vars "PROJECT_ID" "BUCKET_NAME" || exit 1
 
 # Display configuration
-display_config "BUCKET_NAME"
+display_config "PROJECT_ID" "BUCKET_NAME"
 
-# Set up authentication
+# Set up authentication locally
 setup_auth
 
 # Check if bucket exists
-log "Checking if bucket exists..."
-if ! gcloud storage buckets describe "gs://$BUCKET_NAME" &> /dev/null; then
-    log "Bucket 'gs://$BUCKET_NAME' does not exist. Nothing to delete."
+log "Checking if bucket 'gs://$BUCKET_NAME' exists..."
+if ! gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
+    log_warning "Bucket 'gs://$BUCKET_NAME' does not exist. Nothing to delete."
     exit 0
 fi
-log "Bucket 'gs://$BUCKET_NAME' found"
 
-# Show bucket contents before asking for confirmation
-log "Listing bucket contents before deletion:"
-gcloud storage ls -l "gs://$BUCKET_NAME" 2>/dev/null || echo "Bucket is empty"
-
-# Prompt for user confirmation
-read -p "This will PERMANENTLY DELETE bucket 'gs://$BUCKET_NAME' and ALL its contents. This action CANNOT be undone. Type 'yes' to confirm: " confirm
-
-if [[ "$confirm" != "yes" ]]; then
-    log "Deletion cancelled by user. Exiting."
+# Confirm deletion
+read -p "Are you sure you want to delete bucket 'gs://$BUCKET_NAME' and ALL its contents? (y/n): " confirm
+if [[ "$confirm" != "y" ]]; then
+    log "Deletion cancelled."
     exit 0
 fi
 
 # Delete the bucket and all its contents
-log "Proceeding with bucket deletion..."
-gcloud storage rm --recursive "gs://$BUCKET_NAME"
+log "Deleting bucket 'gs://$BUCKET_NAME' and all its contents..."
+gsutil -m rm -r "gs://$BUCKET_NAME"
 
-log "GCS bucket 'gs://$BUCKET_NAME' and all its contents have been deleted successfully."
-log "GCS Bucket teardown process completed."
+# Verify deletion
+if ! gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
+    log_success "Bucket deleted successfully"
+else
+    log_error "Failed to delete bucket. Please check permissions and try again."
+    exit 1
+fi
+
+log_success "GCS bucket teardown completed successfully"
+exit 0

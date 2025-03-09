@@ -1,24 +1,28 @@
 #!/bin/bash
 
+# Add colors to the output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
 # --- COMMON LOGGING FUNCTIONS ---
 log() {
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$timestamp] $1"
+  local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+  echo -e "[$timestamp] $1"
 }
 
 log_success() {
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo -e "[$timestamp] \033[0;32m$1\033[0m"  # Green
+  log "${GREEN}$1${NC}"
 }
 
 log_warning() {
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo -e "[$timestamp] \033[0;33m$1\033[0m"  # Yellow
+  log "${YELLOW}$1${NC}"
 }
 
 log_error() {
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo -e "[$timestamp] \033[0;31m$1\033[0m"  # Red
+  log "${RED}$1${NC}"
 }
 
 log_section() {
@@ -103,22 +107,21 @@ function load_env_vars() {
 
 # --- UTILITIES ---
 function check_env_vars() {
-  local missing=0
-  local missing_vars=()
+  local missing=false
   
   for var in "$@"; do
-    if [[ -z "${!var}" ]]; then
-      missing_vars+=("$var")
-      missing=1
+    if [ -z "${!var}" ]; then
+      log_error "Required environment variable $var is not set."
+      missing=true
     fi
   done
   
-  if [[ $missing -eq 1 ]]; then
-    log_error "Required environment variable(s) not set: ${missing_vars[*]}"
-    log_error "Please make sure these are defined in your .env file"
+  if $missing; then
+    log_error "Please set the required environment variables and try again."
+    return 1
   fi
   
-  return $missing
+  return 0
 }
 
 # Configure TPU environment variables with sensible defaults
@@ -175,48 +178,51 @@ function ensure_directory() {
 }
 
 # --- SSH HELPERS ---
-# Execute SSH command with timeout
-ssh_with_timeout() {
+# Execute SSH command on TPU VM
+vmssh() {
   local cmd="$1"
-  local timeout_seconds="${2:-30}"
-  local ssh_result=0
   
-  log "Executing SSH command (timeout: ${timeout_seconds}s)"
-  timeout "$timeout_seconds" gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" --project="$PROJECT_ID" \
-    --command="$cmd" || ssh_result=$?
+  log "Executing SSH command on TPU VM"
   
-  if [ $ssh_result -eq 124 ]; then
-    log_warning "SSH command timed out after $timeout_seconds seconds"
-    return 124
-  elif [ $ssh_result -ne 0 ]; then
-    log_error "SSH command failed with code $ssh_result"
-    return $ssh_result
+  # Execute the command on the TPU VM
+  gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" \
+    --project="$PROJECT_ID" \
+    --worker=all \
+    --command="$cmd"
+  
+  local exit_code=$?
+  
+  if [ $exit_code -ne 0 ]; then
+    log_error "Command failed at line $BASH_LINENO with exit code $exit_code"
+    log_error "Check logs above for more details"
   fi
   
-  return 0
+  return $exit_code
 }
 
-# Execute SSH command on all TPU workers with timeout
-ssh_all_with_timeout() {
+# Execute SSH command and capture output to file
+vmssh_out() {
   local cmd="$1"
-  local timeout_seconds="${2:-30}"
-  local ssh_result=0
+  local output_dir="$2"
+  local worker="${3:-0}"  # Default to worker 0
   
-  log "Executing SSH command on all workers (timeout: ${timeout_seconds}s)"
-  timeout "$timeout_seconds" gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
-    --zone="$TPU_ZONE" --project="$PROJECT_ID" \
-    --worker=all --command="$cmd" || ssh_result=$?
+  log "Executing SSH command with output capture to directory"
   
-  if [ $ssh_result -eq 124 ]; then
-    log_warning "SSH all-workers command timed out after $timeout_seconds seconds"
-    return 124
-  elif [ $ssh_result -ne 0 ]; then
-    log_error "SSH all-workers command failed with code $ssh_result"
-    return $ssh_result
+  # Execute command with output captured to directory
+  gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
+    --zone="$TPU_ZONE" \
+    --project="$PROJECT_ID" \
+    --worker="$worker" \
+    --command="$cmd" \
+    --output-directory="$output_dir" \
+    --ssh-flag="-T"
+  
+  local exit_code=$?
+  
+  if [ $exit_code -ne 0 ] && [ $exit_code -ne 127 ]; then
+    log_error "Command failed with exit code $exit_code"
   fi
-  
-  return 0
 }
 
 # --- DOCKER HELPERS ---

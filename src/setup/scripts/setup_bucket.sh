@@ -5,35 +5,58 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common_logging.sh"
+source "$PROJECT_DIR/src/utils/common.sh"
 
 # --- MAIN SCRIPT ---
-init_script 'GCS bucket setup'
+init_script 'GCS Bucket Setup'
 ENV_FILE="$PROJECT_DIR/source/.env"
 
-
-# Validate required environment variables
-check_env_vars "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION" || exit 1
+# Load environment variables
+log "Loading environment variables..."
 load_env_vars "$ENV_FILE"
 
-# Display configuration
-display_config "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION"
+# Validate required environment variables
+check_env_vars "PROJECT_ID" "BUCKET_NAME" || exit 1
 
-# Set up authentication
+# Display configuration
+display_config "PROJECT_ID" "BUCKET_NAME"
+
+# Set up authentication locally
 setup_auth
 
-# Check if bucket exists
-if gcloud storage buckets describe "gs://$BUCKET_NAME" &> /dev/null; then
-    log "Bucket 'gs://$BUCKET_NAME' already exists. Exiting."
-    exit 0
+# Check if bucket already exists
+log "Checking if bucket 'gs://$BUCKET_NAME' exists..."
+if gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
+    log_warning "Bucket 'gs://$BUCKET_NAME' already exists. Skipping creation."
+else
+    # Create the bucket with appropriate parameters
+    log "Creating bucket 'gs://$BUCKET_NAME'..."
+    gsutil mb -p "$PROJECT_ID" -l "us-central1" "gs://$BUCKET_NAME"
+    
+    # Set default ACLs
+    log "Setting default ACLs..."
+    gsutil defacl set private "gs://$BUCKET_NAME"
+    
+    log_success "Bucket created successfully"
 fi
 
-# Create the bucket with specified settings
-log "Creating GCS bucket: gs://$BUCKET_NAME..."
-gcloud storage buckets create "gs://$BUCKET_NAME" \
-    --location="$BUCKET_REGION" \
-    --default-storage-class="STANDARD" \
-    --uniform-bucket-level-access
+# If TPU exists, configure it to access the bucket
+if [[ -n "$TPU_NAME" && -n "$TPU_ZONE" ]]; then
+    log "Checking if TPU '$TPU_NAME' exists..."
+    if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
+        log "TPU VM exists. Configuring access to GCS bucket..."
+        
+        # Configure gsutil on TPU VM
+        vmssh "gcloud config set project $PROJECT_ID"
+        
+        log_success "TPU VM configured to access GCS bucket"
+    else
+        log "TPU VM does not exist or is not accessible. Skipping TPU configuration."
+    fi
+else
+    log "TPU_NAME or TPU_ZONE not set. Skipping TPU configuration."
+fi
 
-log "GCS bucket creation completed in region $BUCKET_REGION"
-log "GCS Bucket Setup Complete. Bucket 'gs://$BUCKET_NAME' is ready."
+log_success "GCS bucket setup completed successfully"
+log_success "Bucket URL: gs://$BUCKET_NAME"
+exit 0

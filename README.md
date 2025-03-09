@@ -52,9 +52,7 @@ Transformer models are computationally intensive to train and evaluate. Google C
 │   │   ├── mount.sh              # Script to mount files to TPU VM
 │   │   ├── run.sh                # Script to execute files on TPU VM
 │   │   ├── scrap.sh              # Script to remove files from TPU VM
-│   │   ├── mount_run_scrap.sh    # All-in-one script to mount, run, and clean up
-│   │   ├── synch.sh              # Enhanced script for syncing and watching code changes (CI/CD)
-│   │   └── monitor_tpu.sh        # Self-contained TPU monitoring script
+│   │   └── synch.sh              # Enhanced script for syncing and watching code changes (CI/CD)
 ├── src/                          # Source code for the project
 │   ├── setup/                    # Setup scripts and configuration
 │   │   ├── scripts/              # Scripts for setting up the environment
@@ -62,11 +60,11 @@ Transformer models are computationally intensive to train and evaluate. Google C
 │   │   │   ├── setup_bucket.sh   # Script to create GCS bucket
 │   │   │   ├── setup_image.sh    # Script to build and push Docker image to GCR
 │   │   │   ├── setup_tpu.sh      # Script to create TPU VM and pull Docker image
-│   │   │   ├── verify_setup.sh   # Script to verify TPU setup and PyTorch/XLA
-│   │   │   └── verify.py         # Python verification utility for TPU setup
+│   │   │   └── verify_setup.sh   # Script to verify TPU setup and PyTorch/XLA
 │   │   └── docker/               # Docker configuration
 │   │       ├── Dockerfile        # Docker image definition
 │   │       ├── entrypoint.sh     # Container entry point script
+│   │       ├── tpu.env           # TPU-specific environment variables
 │   │       └── requirements.txt  # Python dependencies
 │   ├── teardown/                 # Scripts for resource cleanup
 │   │   ├── teardown_bucket.sh    # Script to delete GCS bucket
@@ -76,8 +74,6 @@ Transformer models are computationally intensive to train and evaluate. Google C
 │       └── common_logging.sh     # Common bash utilities and logging functions
 └── source/                       # Configuration and credential files
     ├── .env                      # Environment variables and configuration
-    ├── tpu.env                   # TPU-specific environment variables
-    ├── back.env                  # Backend configuration for monitoring
     └── service-account.json      # Service account key (replace with your own)
 ```
 
@@ -162,6 +158,12 @@ Build your Docker image and push it to Google Container Registry:
 ./src/setup/scripts/setup_image.sh
 ```
 
+This script:
+- Creates a temporary build context with required files
+- Copies utility modules and Docker configuration
+- Builds the Docker image locally
+- Tags and pushes it to Google Container Registry
+
 #### 5. Set Up TPU VM and Pull Docker Image
 
 Create the TPU VM and pull the Docker image:
@@ -170,17 +172,15 @@ Create the TPU VM and pull the Docker image:
 ./src/setup/scripts/setup_tpu.sh
 ```
 
-#### 6. Verify TPU Environment
+This script:
+- Verifies the TPU VM doesn't already exist
+- Creates the TPU VM with appropriate parameters
+- Configures Docker authentication on the TPU VM
+- Pulls the Docker image from Google Container Registry
 
-Verify that PyTorch and XLA are properly installed and can access the TPU:
+## 2. Development Workflow (CI/CD)
 
-```bash
-./src/setup/scripts/verify_setup.sh
-```
-
-## 2. Mounting Code (CI/CD)
-
-This project implements a simplified CI/CD workflow for TPU development, allowing for rapid iteration without rebuilding Docker images for every code change.
+The project implements a streamlined CI/CD workflow for rapid iteration without rebuilding Docker images for every code change.
 
 ### Development vs. Production
 
@@ -195,120 +195,117 @@ The `mount.sh` script copies Python files from your local development environmen
 ./dev/mgt/mount.sh example_monitoring.py
 
 # Mount multiple files
-./dev/mgt/mount.sh model.py train.py utils.py
+./dev/mgt/mount.sh file1.py file2.py
 
-# Mount the utils directory (needed for importing utility modules)
-./dev/mgt/mount.sh --utils
+# Mount all files in dev/src directory
+./dev/mgt/mount.sh --all
 ```
 
-The mounted files are stored in `/tmp/dev/src/` on the TPU VM, and the script validates that the transfer was successful.
-
-### Continuous Code Synchronization
-
-The `synch.sh` script provides automated code synchronization with the TPU VM, supporting a CI/CD-like workflow during development:
-
-```bash
-# Basic sync of all Python files to the TPU VM
-./dev/mgt/synch.sh
-
-# Watch mode: automatically sync when files change
-./dev/mgt/synch.sh --watch
-
-# Restart Docker container after syncing
-./dev/mgt/synch.sh --restart
-
-# Use Docker Compose watch feature (v2.22.0+)
-./dev/mgt/synch.sh --compose-watch
-
-# Sync specific files only
-./dev/mgt/synch.sh --specific model.py trainer.py
-
-# Include utils directory in sync
-./dev/mgt/synch.sh --utils
-```
-
-This enables:
-1. Rapid iteration on TPU-specific code
-2. Immediate testing without container rebuilds
-3. Continuous feedback during development
-4. Support for automated testing workflows
-
-## 3. Execution
+The mounted files are stored in `/tmp/app/mount` on the TPU VM, which is then mounted to `/app/mount` inside the Docker container.
 
 ### Running Files on TPU VM
 
-The `run.sh` script executes mounted Python files inside a Docker container on the TPU VM, with TPU acceleration enabled:
+The `run.sh` script executes mounted Python files inside a Docker container on the TPU VM:
 
 ```bash
 # Run a mounted file on the TPU VM
 ./dev/mgt/run.sh example_monitoring.py
 
-# Run multiple files sequentially
-./dev/mgt/run.sh preprocess.py train.py
-
-# Run a file with arguments
-./dev/mgt/run.sh model.py --epochs 10 --batch_size 32
+# Run with arguments
+./dev/mgt/run.sh train.py --epochs 10 --batch_size 32
 ```
 
-This script will:
-- Check if each file is mounted and mount it if not found
-- Automatically mount the utils directory if needed
-- Try running with regular Docker permissions first, then fall back to sudo if needed
-- Display logs in real-time with color formatting
-
-### All-in-One Workflow
-
-The `mount_run_scrap.sh` script provides a convenient workflow that combines mounting, running, and optional cleanup:
-
-```bash
-# Mount, run, and keep example_monitoring.py
-./dev/mgt/mount_run_scrap.sh example_monitoring.py
-
-# Mount, run, and clean up model.py when finished
-./dev/mgt/mount_run_scrap.sh model.py --clean
-
-# Process multiple files sequentially
-./dev/mgt/mount_run_scrap.sh preprocess.py train.py
-
-# Pass arguments to the Python script
-./dev/mgt/mount_run_scrap.sh train.py --epochs 10
-```
-
-### TPU Monitoring Tools
-
-The framework includes dedicated monitoring scripts for TPU performance:
-
-```bash
-# Start TPU monitoring in the background
-./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME
-
-# Start TPU monitoring and also monitor a Python process
-./dev/mgt/monitor_tpu.sh start YOUR_TPU_NAME PYTHON_PID
-
-# Stop all monitoring services
-./dev/mgt/monitor_tpu.sh stop
-```
-
-These monitoring scripts will generate logs and performance data in the `logs/` directory, which can be analyzed using the dashboard utilities.
-
-## 4. Scrapping Code
+The script:
+- Configures Docker authentication on the TPU VM
+- Verifies the file exists in the mounted directory
+- Runs the file in a Docker container with TPU access
+- Automatically falls back to sudo if needed
 
 ### Removing Files from TPU VM
 
-The `scrap.sh` script cleans up files from the TPU VM when you're done with them:
+The `scrap.sh` script cleans up files from the TPU VM:
 
 ```bash
-# Remove a specific file from the TPU VM
-./dev/mgt/scrap.sh example_monitoring.py
+# Remove specific files
+./dev/mgt/scrap.sh file1.py file2.py
 
-# Remove multiple files from the TPU VM
-./dev/mgt/scrap.sh model.py train.py
-
-# Remove all files from the TPU VM
+# Remove all files
 ./dev/mgt/scrap.sh --all
+
+# Prune Docker volumes
+./dev/mgt/scrap.sh --prune
 ```
 
-### Clean Up Resources When Finished
+### Continuous Synchronization
+
+The `synch.sh` script provides automated file synchronization with the TPU VM:
+
+```bash
+# Basic sync of files to TPU VM
+./dev/mgt/synch.sh
+
+# Watch mode: automatically sync when files change
+./dev/mgt/synch.sh --watch
+
+# Restart container after syncing
+./dev/mgt/synch.sh --restart
+```
+
+This enables:
+- Rapid iteration on TPU-specific code
+- Immediate testing without container rebuilds
+- Continuous feedback during development
+
+## 3. Web Application Infrastructure
+
+The Docker container includes a built-in web application infrastructure for monitoring and visualization:
+
+### Exposed Services
+
+- **Flask API Server**: Port 5000
+  - Provides REST API for experiment management
+  - Offers TPU monitoring endpoints
+  - Runs in the container by default
+
+- **TensorBoard**: Port 6006
+  - Visualization of training metrics
+  - Model graph exploration
+  - Profile TPU performance
+
+### Container Architecture
+
+The Docker container is designed with:
+
+1. **Proper TPU Access**:
+   - Maps TPU devices into the container
+   - Sets required environment variables
+   - Configures library paths for TPU access
+
+2. **Monitoring Backend**:
+   - Custom entrypoint script for service management
+   - Automatic logging and metric collection
+   - REST API for external monitoring
+
+3. **Persistent Storage**:
+   - Volume mounts for code deployment
+   - Configurable data storage location
+   - Log persistence across container restarts
+
+### Running the Web Services
+
+The services are automatically started when the container runs:
+
+```bash
+# Run the container with web services enabled
+docker run --privileged --rm \
+  -v /dev:/dev \
+  -v /lib/libtpu.so:/lib/libtpu.so \
+  -p 5000:5000 \
+  -p 6006:6006 \
+  gcr.io/${PROJECT_ID}/tae-tpu:v1
+```
+
+## 4. Teardown Resources
 
 When you're done with your TPU resources, clean up in this order:
 
@@ -373,32 +370,11 @@ tpu_logger = TPUMetricsLogger()
 tpu_logger.log_metrics(step=current_step)
 ```
 
-### Debugging Techniques
-
-For debugging complex TPU issues:
-
-1. **Start with small examples**: Use `dev/src/example.py` as a template
-2. **Add debug logging**: Use the logger utilities from `utils.tpu_logging`
-3. **Monitor TPU state**: Run `monitor_tpu.sh` to track resource usage
-4. **Test incrementally**: Test small parts before running full code
-5. **Profile performance**: Use profiling tools to identify bottlenecks
-6. **Enable verbose XLA output**: Set appropriate debug levels in `tpu.env`
-
-### Performance Considerations
-
-For optimal development performance:
-
-- **Minimize Data Size**: Use small test datasets during development
-- **Reduce Model Size**: Use smaller model configurations for faster iteration
-- **Cache Preprocessing**: Avoid repeating expensive preprocessing steps
-- **Profile Early**: Use the TPU profiler to identify bottlenecks early in development
-- **Monitor Memory**: Use the memory profiler to catch memory leaks before they become an issue
-
 ### System Requirements
 
 - Docker Desktop installed and running
 - Google Cloud SDK installed and configured 
-- Python 3.8+ for local development
+- Python 3.11+ for local development
 - Google Cloud account with billing enabled
 - Service account with appropriate permissions
 - Git for version control

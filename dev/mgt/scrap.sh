@@ -1,148 +1,220 @@
 #!/bin/bash
 
-# --- DETERMINE SCRIPT AND PROJECT DIRECTORIES ---
+# --- Basic setup ---
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MOUNT_PATH="/tmp/app/mount"
+DOCKER_IMAGE=${DOCKER_IMAGE:-"tpu-dev-image"}
+TPU_LIB_PATH=${TPU_LIB_PATH:-"/lib/libtpu.so"}
 
-# --- IMPORT COMMON FUNCTIONS ---
-source "$PROJECT_DIR/src/utils/common_logging.sh"
+# --- Import common functions ---
+source "$PROJECT_DIR/src/utils/common.sh"
 
+# Initialize script with name
+init_script "TPU Resource Cleanup"
+
+# --- Usage information ---
 show_usage() {
-  echo "Usage: $0 [filename1.py filename2.py ...] [--utils] [--all] [--auto-confirm]"
+  echo "Usage: $0 [--all] [--dir directory] [file1.py file2.py ...] [--prune]"
   echo ""
-  echo "Remove file(s) from the TPU VM and optionally clean up Docker volumes."
+  echo "Remove files from Docker mounted directory and optionally prune Docker volumes."
   echo ""
-  echo "Arguments:"
-  echo "  filename1.py filename2.py   Files to remove from TPU VM (must be in /dev/src or /dev/src/utils)"
-  echo "  --utils                    Remove the utils directory"
-  echo "  --all                      Remove all mounted files and directories"
-  echo "  --auto-confirm             Skip confirmation prompts"
-  echo ""
-  echo "Examples:"
-  echo "  $0 example.py               # Remove a single file"
-  echo "  $0 --utils                  # Remove only the utils directory"
-  echo "  $0 example.py train.py      # Remove multiple files"
-  echo "  $0 --all                    # Remove everything in the dev directory"
+  echo "Options:"
+  echo "  file1.py file2.py     Files to remove"
+  echo "  --dir directory       Directory to remove"
+  echo "  --all                 Remove all files from mount directory"
+  echo "  --prune               Prune Docker volumes"
+  echo "  --help                Show this help message"
   exit 1
 }
 
-# Function to load mount information from temp file
-load_mount_info() {
-  MOUNT_INFO_FILE="$PROJECT_DIR/source/.mount_info.tmp"
-  if [[ -f "$MOUNT_INFO_FILE" ]]; then
-    log "Found mount information file"
-    source "$MOUNT_INFO_FILE"
-    return 0
-  else
-    log_warning "No mount information file found. Will rely on command arguments."
-    return 1
-  fi
-}
-
-# Main script starts here
-if [ $# -eq 0 ]; then
-  show_usage
-fi
-
-log 'Loading environment variables...'
-source "$PROJECT_DIR/source/.env"
-log 'Environment variables loaded successfully'
-
-# Validate required environment variables
-check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME"
-
-# Parse arguments
-FILES_TO_REMOVE=()
-REMOVE_UTILS=false
+# --- Parse arguments ---
+FILES=()
+DIRECTORIES=()
 REMOVE_ALL=false
-AUTO_CONFIRM=false
+PRUNE_VOLUMES=false
 
-for arg in "$@"; do
-  if [[ "$arg" == "--utils" ]]; then
-    REMOVE_UTILS=true
-  elif [[ "$arg" == "--all" ]]; then
-    REMOVE_ALL=true
-  elif [[ "$arg" == "--auto-confirm" ]]; then
-    AUTO_CONFIRM=true
-  elif [[ "$arg" == *.py ]]; then
-    FILES_TO_REMOVE+=("$arg")
-  else
-    log_warning "Unknown argument: $arg"
-  fi
+[ $# -eq 0 ] && show_usage
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --all)
+      REMOVE_ALL=true
+      shift
+      ;;
+    --dir)
+      if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
+        DIRECTORIES+=("$2")
+        shift 2
+      else
+        log_error "Error: Argument for $1 is missing"
+        show_usage
+      fi
+      ;;
+    --prune)
+      PRUNE_VOLUMES=true
+      shift
+      ;;
+    --help)
+      show_usage
+      shift
+      ;;
+    *.*)
+      FILES+=("$1")
+      shift
+      ;;
+    *)
+      log_warning "Unknown argument: $1"
+      shift
+      ;;
+  esac
 done
 
-# Load mount information if available
-load_mount_info
+# --- Check for required environment variables ---
+load_env_vars "$PROJECT_DIR/source/.env"
 
-# Target directory on TPU VM
-TARGET_DIR="/tmp/dev/src"
+# --- Function to confirm action ---
+confirm_action() {
+  read -p "$1 (y/n): " answer
+  [[ "$answer" == "y" || "$answer" == "Y" ]]
+}
 
-# Check if development directory exists
-if ! ssh_with_timeout "test -d ${TARGET_DIR} && echo 'exists'" | grep -q "exists"; then
-  log_warning "Directory ${TARGET_DIR} does not exist on TPU VM"
-  if [[ ${#FILES_TO_REMOVE[@]} -eq 0 && "$REMOVE_UTILS" == "false" && "$REMOVE_ALL" == "false" ]]; then
-    log_warning "Nothing to clean, exiting"
-    exit 0
+# --- Docker execution helper ---
+run_docker_cmd() {
+  local CMD="$1"
+  
+  DOCKER_CMD=$(generate_docker_cmd "$DOCKER_IMAGE" "$TPU_LIB_PATH" "$CMD")
+  log "Running Docker command..."
+  eval "$DOCKER_CMD"
+  return $?
+}
+
+# --- Main execution ---
+log_section "TPU Resource Cleanup"
+log "- Docker Image: $DOCKER_IMAGE"
+log "- Mount path: $MOUNT_PATH"
+log "- Remove all files: $REMOVE_ALL"
+log "- Files to remove: ${FILES[*]:-None}"
+log "- Directories to remove: ${DIRECTORIES[*]:-None}"
+log "- Prune volumes: $PRUNE_VOLUMES"
+
+# Get current list of files in the mounted directory
+log "Checking current mounted files..."
+FILE_LIST=$(run_docker_cmd "ls -la $MOUNT_PATH 2>/dev/null || echo 'EMPTY'")
+
+# Check if the directory exists or is empty
+if [[ "$FILE_LIST" == *"EMPTY"* ]]; then
+  log_warning "Mount directory $MOUNT_PATH does not exist or is empty"
+  
+  # Create directory if it doesn't exist
+  log "Creating mount directory..."
+  run_docker_cmd "mkdir -p $MOUNT_PATH"
+else
+  log_success "Mount directory exists:"
+  echo "$FILE_LIST"
+fi
+
+# Process file removal
+if [ "$REMOVE_ALL" = true ]; then
+  # Remove all files if --all is specified
+  log "Removing all files from $MOUNT_PATH..."
+  confirm_action "Are you sure you want to remove ALL files?" || exit 0
+  
+  # Try to remove all files
+  run_docker_cmd "rm -rf $MOUNT_PATH/* && echo 'All files removed successfully'"
+  if [ $? -eq 0 ]; then
+    log_success "All files removed from mount directory"
+  else
+    log_error "Failed to remove all files"
+    exit 1
   fi
 fi
 
-# Handle --all flag
-if [[ "$REMOVE_ALL" == "true" ]]; then
-  if [[ "$AUTO_CONFIRM" != "true" ]]; then
-    read -p "Are you sure you want to remove ALL mounted files? (y/n): " CONFIRM
-    if [[ "$CONFIRM" != "y" ]]; then
-      log "Operation cancelled by user"
-      exit 0
-    fi
-  fi
+# Remove specified directories
+if [ ${#DIRECTORIES[@]} -gt 0 ]; then
+  log "Removing ${#DIRECTORIES[@]} directory/directories..."
   
-  log "Removing all files from ${TARGET_DIR}..."
-  ssh_with_timeout "if [ -d ${TARGET_DIR} ]; then rm -rf ${TARGET_DIR}/* 2>/dev/null || true; fi"
-  log_success "All files removed from TPU VM"
-  
-  # Prune Docker volumes
-  log "Pruning Docker volumes..."
-  ssh_with_timeout "docker volume prune -f" 15
-  log_success "Docker volumes pruned"
-  
-  exit 0
-fi
-
-# Handle utils directory removal
-if [[ "$REMOVE_UTILS" == "true" ]]; then
-  log "Removing utils directory from TPU VM..."
-  ssh_with_timeout "if [ -d ${TARGET_DIR}/utils ]; then rm -rf ${TARGET_DIR}/utils 2>/dev/null || true; fi"
-  log_success "Utils directory removed from TPU VM"
-fi
-
-# Remove individual files
-if [[ ${#FILES_TO_REMOVE[@]} -gt 0 ]]; then
-  log "Removing ${#FILES_TO_REMOVE[@]} file(s) from TPU VM..."
-  
-  for file in "${FILES_TO_REMOVE[@]}"; do
-    # First check in the main dev directory
-    if ssh_with_timeout "test -f ${TARGET_DIR}/${file} && echo 'exists'" | grep -q "exists"; then
-      log "Removing ${file} from main directory..."
-      ssh_with_timeout "rm -f ${TARGET_DIR}/${file}"
-      log_success "${file} removed from TPU VM"
-    # Then check in the utils directory
-    elif ssh_with_timeout "test -f ${TARGET_DIR}/utils/${file} && echo 'exists'" | grep -q "exists"; then
-      log "Removing ${file} from utils directory..."
-      ssh_with_timeout "rm -f ${TARGET_DIR}/utils/${file}"
-      log_success "${file} removed from utils directory"
+  for dir in "${DIRECTORIES[@]}"; do
+    # Check if directory exists
+    DIR_CHECK=$(run_docker_cmd "[ -d $MOUNT_PATH/$dir ] && echo 'EXISTS' || echo 'NOT_EXISTS'")
+    
+    if [[ "$DIR_CHECK" == *"EXISTS"* ]]; then
+      log "Removing directory $dir..."
+      confirm_action "Are you sure you want to remove directory $dir?" || continue
+      
+      run_docker_cmd "rm -rf $MOUNT_PATH/$dir"
+      if [ $? -eq 0 ]; then
+        log_success "Removed directory $dir"
+      else
+        log_warning "Failed to remove directory $dir"
+      fi
     else
-      log_warning "${file} not found on TPU VM - already removed or never mounted"
+      log_warning "Directory $dir not found in $MOUNT_PATH"
     fi
   done
 fi
 
-# Prune Docker volumes if we removed anything
-if [[ "$REMOVE_UTILS" == "true" || ${#FILES_TO_REMOVE[@]} -gt 0 || "$REMOVE_ALL" == "true" ]]; then
-  log "Pruning unused Docker volumes..."
-  ssh_with_timeout "docker volume prune -f" 15
-  log_success "Docker volume pruning complete"
+# Remove specified files
+if [ ${#FILES[@]} -gt 0 ]; then
+  log "Removing ${#FILES[@]} file(s)..."
+  
+  for file in "${FILES[@]}"; do
+    # Check if file exists
+    FILE_CHECK=$(run_docker_cmd "[ -f $MOUNT_PATH/$file ] && echo 'EXISTS' || echo 'NOT_EXISTS'")
+    
+    if [[ "$FILE_CHECK" == *"EXISTS"* ]]; then
+      log "Removing file $file..."
+      
+      run_docker_cmd "rm -f $MOUNT_PATH/$file"
+      if [ $? -eq 0 ]; then
+        log_success "Removed file $file"
+      else
+        log_warning "Failed to remove file $file"
+      fi
+    else
+      log_warning "File $file not found in $MOUNT_PATH"
+    fi
+  done
 fi
 
-log_success "Cleanup process completed successfully"
+# Verify state after removal
+if [ "$REMOVE_ALL" = true ] || [ ${#FILES[@]} -gt 0 ] || [ ${#DIRECTORIES[@]} -gt 0 ]; then
+  log "Verifying current state after removal..."
+  
+  # Count remaining files
+  COUNT_RESULT=$(run_docker_cmd "find $MOUNT_PATH -type f 2>/dev/null | wc -l || echo 'ERROR'")
+  
+  if [[ "$COUNT_RESULT" == "ERROR" ]]; then
+    log_warning "Cannot access mount directory to verify"
+  elif [[ "$COUNT_RESULT" == "0" ]]; then
+    log_success "No files remain in the mount directory"
+  else
+    log "Some files remain in the mount directory. File count: $COUNT_RESULT"
+    
+    # Show remaining files
+    REMAINING_FILES=$(run_docker_cmd "ls -la $MOUNT_PATH 2>/dev/null || echo 'CANNOT_ACCESS'")
+    if [[ "$REMAINING_FILES" != *"CANNOT_ACCESS"* ]]; then
+      echo "$REMAINING_FILES"
+    else
+      log_warning "Cannot access mount directory to list remaining files"
+    fi
+  fi
+fi
+
+# Prune Docker volumes if requested
+if [ "$PRUNE_VOLUMES" = true ]; then
+  log "Pruning Docker volumes..."
+  confirm_action "Are you sure you want to prune all unused Docker volumes?" || exit 0
+  
+  docker volume prune --force
+  if [ $? -eq 0 ]; then
+    log_success "Docker volumes pruned successfully"
+  else
+    log_error "Failed to prune Docker volumes"
+  fi
+fi
+
+log_success "Cleanup completed successfully"
+log_elapsed_time
 exit 0
