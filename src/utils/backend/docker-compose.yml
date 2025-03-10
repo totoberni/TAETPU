@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${PROJECT_ID}/tae-backend:v1
+    container_name: tae-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - PROJECT_ID=${PROJECT_ID}
+      - BUCKET_NAME=${BUCKET_NAME}
+      - TPU_NAME=${TPU_NAME}
+      - TPU_ZONE=${TPU_ZONE}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/keys/service-account.json
+    volumes:
+      - ../../source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
+      - ./logs:/app/logs
+    restart: unless-stopped

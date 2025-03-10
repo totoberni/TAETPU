@@ -1,31 +1,24 @@
 #!/bin/bash
-# entrypoint.sh - Entry point script for the Docker container.
-# This script initializes the environment and then executes the command provided as CMD.
-
 set -e
 
-# Import common logging functions
-source "/app/utils/common_logging.sh"
+# Start TensorBoard in the background
+mkdir -p /app/tensorboard
+tensorboard --logdir=/app/tensorboard --host=0.0.0.0 --port=6006 &
 
-# Use common logging functions
-init_script "Container Startup"
-log "Starting container with TPU configuration"
-log "- PJRT_DEVICE: ${PJRT_DEVICE}"
-log "- XLA_USE_BF16: ${XLA_USE_BF16}"
-log "- Flask Environment: ${FLASK_ENV}"
+# Set up the environment for TPU access
+echo "Setting up TPU environment..."
 
-# Configure TPU environment with sensible defaults
-configure_tpu_env
-
-# Verify TPU accessibility by attempting to print the TPU device
-if python -c "import torch_xla.core.xla_model as xm; print('TPU device:', xm.xla_device())" >/dev/null 2>&1; then
-  log_success "TPU is accessible."
-else
-  log_warning "Warning: TPU not accessible. Please check your configuration."
+# Set the GCP credentials if available
+if [ -f /app/keys/service-account.json ]; then
+    echo "Setting up service account authentication..."
+    export GOOGLE_APPLICATION_CREDENTIALS=/app/keys/service-account.json
+    gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
 fi
 
-# Log command execution
-log "Executing command: $@"
+# Display TPU device info
+echo "Checking TPU device..."
+python -c "import torch_xla.core.xla_model as xm; print(xm.xla_device())"
 
-# Execute the main process specified in CMD (e.g., the Flask server)
+# Run the command provided in CMD
+echo "Starting application..."
 exec "$@"

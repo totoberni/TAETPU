@@ -1,75 +1,76 @@
 #!/bin/bash
+set -e
 
-# --- Get script directory for absolute path references ---
+# Get the directory of this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
-
-# --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common.sh"
-
-# --- MAIN SCRIPT ---
-init_script 'Docker Image Setup'
-ENV_FILE="$PROJECT_DIR/source/.env"
 
 # Load environment variables
-log "Loading environment variables..."
-load_env_vars "$ENV_FILE"
+source "$PROJECT_DIR/source/.env"
 
-# Validate required environment variables
-check_env_vars "PROJECT_ID" || exit 1
+# Function to log messages
+log_message() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
 
-# Display configuration
-display_config "PROJECT_ID"
-
-# Set up authentication locally
-setup_auth
-
-# Configure Docker to use GCR
-log "Configuring Docker authentication..."
-gcloud auth configure-docker gcr.io --quiet
-gcloud auth configure-docker eu.gcr.io --quiet
-
-# Define Docker image path
-IMAGE_NAME="gcr.io/${PROJECT_ID}/tae-tpu:v1"
-EU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
-
-# Check if Dockerfile exists
-if [[ ! -f "$DOCKER_DIR/Dockerfile" ]]; then
-    log_error "Dockerfile not found at $DOCKER_DIR/Dockerfile"
+# Check for required environment variables
+required_vars=("PROJECT_ID" "TPU_NAME" "SERVICE_ACCOUNT_JSON" "TPU_ZONE")
+for var in "${required_vars[@]}"; do
+  if [ -z "${!var}" ]; then
+    log_message "ERROR: Required environment variable $var is not set"
     exit 1
-fi
+  fi
+done
 
-# Build Docker image
-log "Building Docker image..."
-docker build -t "$IMAGE_NAME" -t "$EU_IMAGE_NAME" "$DOCKER_DIR"
-
-# Push Docker image to GCR
-log "Pushing Docker image to Container Registry..."
-docker push "$IMAGE_NAME"
-docker push "$EU_IMAGE_NAME"
-
-# If TPU exists, pull the image there
-if [[ -n "$TPU_NAME" && -n "$TPU_ZONE" ]]; then
-    log "Checking if TPU '$TPU_NAME' exists..."
-    if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
-        log "TPU VM exists. Pulling Docker image on TPU VM..."
-        
-        # Configure Docker on TPU VM
-        vmssh "gcloud auth configure-docker gcr.io --quiet"
-        vmssh "gcloud auth configure-docker eu.gcr.io --quiet"
-        
-        # Pull Docker image on TPU VM
-        vmssh "sudo docker pull $EU_IMAGE_NAME"
-        
-        log_success "Docker image pulled on TPU VM"
-    else
-        log "TPU VM does not exist or is not accessible. Skipping TPU setup."
-    fi
+# Authenticate with Google Cloud
+log_message "Authenticating with Google Cloud..."
+if [ -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]; then
+  gcloud auth activate-service-account --key-file="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
 else
-    log "TPU_NAME or TPU_ZONE not set. Skipping TPU setup."
+  log_message "ERROR: Service account JSON file not found: $SERVICE_ACCOUNT_JSON"
+  exit 1
 fi
 
-log_success "Docker image setup completed successfully"
-log_success "Image name: $IMAGE_NAME and $EU_IMAGE_NAME"
-exit 0
+# Set project and zone
+gcloud config set project $PROJECT_ID
+gcloud config set compute/zone $TPU_ZONE
+
+# Configure Docker to use European Google Container Registry
+log_message "Configuring Docker for eu.gcr.io..."
+gcloud auth configure-docker eu.gcr.io
+
+# Set paths and variables
+TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
+DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
+
+# Build the TPU container image
+log_message "Building TPU image..."
+docker build -t $TPU_IMAGE_NAME -f "$DOCKER_DIR/Dockerfile" "$DOCKER_DIR"
+
+# Push the image to the European GCR
+log_message "Pushing image to eu.gcr.io..."
+docker push $TPU_IMAGE_NAME
+
+# Configure Docker auth on TPU VM
+log_message "Configuring Docker on TPU VM..."
+gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE \
+  --command="gcloud auth configure-docker eu.gcr.io --quiet"
+
+# Pull image on TPU VM
+log_message "Pulling image on TPU VM..."
+gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE \
+  --command="sudo docker pull $TPU_IMAGE_NAME"
+
+log_message "CI/CD setup completed successfully."
+log_message "TPU Image available at: $TPU_IMAGE_NAME"
+
+# Generate startup command for the TPU VM
+RUN_CMD="sudo docker run --privileged --rm \\
+  -v /dev:/dev \\
+  -v /lib/libtpu.so:/lib/libtpu.so \\
+  -p 5000:5000 \\
+  -p 6006:6006 \\
+  ${TPU_IMAGE_NAME}"
+
+log_message "To run the container on TPU VM, use:"
+log_message "$RUN_CMD"

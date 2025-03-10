@@ -48,27 +48,16 @@ else
     log_success "TPU VM created successfully"
 fi
 
-# Configure Docker authentication directly on the TPU VM
-log "Configuring Docker authentication on TPU VM..."
-vmssh "gcloud auth configure-docker eu.gcr.io --quiet"
-log_success "Docker authentication configured"
+log_success "TPU VM setup completed successfully!"
+log_success "To SSH into your TPU VM, use: gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE"
 
-# Pull Docker image on TPU VM
-log "Pulling Docker image on TPU VM..."
-IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
-vmssh "sudo docker pull ${IMAGE_NAME}"
-log_success "Docker image pulled successfully on TPU VM"
+# Add health check
+log "Performing TPU health check..."
+gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --format="json" > /tmp/tpu_status.json
+TPU_STATUS=$(cat /tmp/tpu_status.json | jq -r '.state')
 
-# Prepare Docker run command
-log "Preparing Docker run command..."
-RUN_CMD="sudo docker run --privileged --rm \\
-  -v /dev:/dev \\
-  -v /lib/libtpu.so:/lib/libtpu.so \\
-  -p 5000:5000 \\
-  -p 6006:6006 \\
-  ${IMAGE_NAME}"
-
-log_success "Setup completed successfully!"
-log_success "Use 'gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE' to connect to your TPU VM"
-log_success "Run the container with this command:"
-log_success "${RUN_CMD}"
+if [ "$TPU_STATUS" == "READY" ]; then
+    log_success "TPU is in READY state and available for use"
+else
+    log_warning "TPU is in $TPU_STATUS state, may not be ready for immediate use"
+fi

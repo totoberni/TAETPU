@@ -155,7 +155,7 @@ Create a bucket for storing experiment data, model checkpoints, and logs:
 Build your Docker image and push it to Google Container Registry:
 
 ```bash
-./src/setup/scripts/setup_image.sh
+x
 ```
 
 This script:
@@ -192,7 +192,7 @@ The `mount.sh` script copies Python files from your local development environmen
 
 ```bash
 # Mount a specific file to the TPU VM (can be run from any directory)
-./dev/mgt/mount.sh example_monitoring.py
+./dev/mgt/mount.sh example.py
 
 # Mount multiple files
 ./dev/mgt/mount.sh file1.py file2.py

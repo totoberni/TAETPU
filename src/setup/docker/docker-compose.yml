@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  tpu-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eu.gcr.io/${PROJECT_ID}/tae-tpu:v1
+    container_name: tae-tpu-container
+    privileged: true
+    environment:
+      - PJRT_DEVICE=TPU
+      - XLA_USE_BF16=1
+      - PT_XLA_DEBUG_LEVEL=1
+      - NEXT_PLUGGABLE_DEVICE_USE_C_API=true
+      - TF_CPP_MIN_LOG_LEVEL=0
+      - XRT_TPU_CONFIG=localservice;0;localhost:51011
+      - TF_XLA_FLAGS=--tf_xla_enable_xla_devices
+      - ALLOW_MULTIPLE_LIBTPU_LOAD=1
+      - PROJECT_ID=${PROJECT_ID}
+      - BUCKET_NAME=${BUCKET_NAME}
+      - BUCKET_DATRAIN=${BUCKET_DATRAIN}
+      - BUCKET_TENSORBOARD=${BUCKET_TENSORBOARD}
+    volumes:
+      - /dev:/dev
+      - /lib/libtpu.so:/lib/libtpu.so
+      - ../../source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
+      - ../../../mount:/app/mount
+      - ../../../data:/app/data
+      - ../../../models:/app/models
+      - ../../../logs:/app/logs
+    ports:
+      - "5000:5000"
+      - "6006:6006"
+    restart: unless-stopped
+
+  monitoring:
+    build:
+      context: ./src/utils/backend
+      dockerfile: Dockerfile.monitoring
+    image: eu.gcr.io/${PROJECT_ID}/tpu-monitoring:v1
+    container_name: tpu-monitoring
+    depends_on:
+      - tpu-service
+    environment:
+      - TPU_NAME=${TPU_NAME}
+      - PROJECT_ID=${PROJECT_ID}
+      - BUCKET_TENSORBOARD=${BUCKET_TENSORBOARD}
+      - TPU_REGION=${TPU_REGION}
+      - TPU_ZONE=${TPU_ZONE}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/service-account.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - /tmp/xla_metrics.json:/tmp/xla_metrics.json
+      - ./${SERVICE_ACCOUNT_JSON}:/app/credentials/service-account.json
+    networks:
+      - tpunetwork
+
+networks:
+  tpunetwork:
+    driver: bridge

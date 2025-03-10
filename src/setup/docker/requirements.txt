@@ -1,7 +1,13 @@
 # Core libraries
 numpy>=1.24.0
-torch==2.1.2
-torch-xla==2.1.0
+
+
+# Transformers and ML libraries
+transformers>=4.30.0
+accelerate>=0.20.0
+datasets>=2.14.0
+evaluate>=0.4.0
+scikit-learn>=1.2.0
 
 # TPU monitoring
 tensorboard==2.13.0
@@ -10,15 +16,23 @@ psutil==5.9.5
 
 # Web server
 Flask==2.3.3
+gunicorn==21.2.0
 
 # Google Cloud
 google-cloud-storage==2.10.0
 google-cloud-monitoring==2.11.0
+google-cloud-logging==3.5.0
 
 # Data processing and utilities
-datasets==2.14.0
 pandas>=2.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
 
 # Network and API
 requests==2.31.0
 urllib3<2.1.0
+python-dotenv==1.0.0
+
+# Development and debugging
+ipython>=8.10.0
+tqdm>=4.65.0
