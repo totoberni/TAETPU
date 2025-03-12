@@ -1,76 +1,69 @@
 #!/bin/bash
-set -e
 
-# Get the directory of this script
+# --- Get script directory for absolute path references ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+# --- Import common functions ---
+source "$PROJECT_DIR/src/utils/common.sh"
+
+# --- MAIN SCRIPT ---
+init_script 'Docker Image Setup'
+
 # Load environment variables
-source "$PROJECT_DIR/source/.env"
+log "Loading environment variables..."
+ENV_FILE="$PROJECT_DIR/source/.env"
+load_env_vars "$ENV_FILE"
 
-# Function to log messages
-log_message() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
+# Validate required environment variables
+check_env_vars "PROJECT_ID" || exit 1
 
-# Check for required environment variables
-required_vars=("PROJECT_ID" "TPU_NAME" "SERVICE_ACCOUNT_JSON" "TPU_ZONE")
-for var in "${required_vars[@]}"; do
-  if [ -z "${!var}" ]; then
-    log_message "ERROR: Required environment variable $var is not set"
-    exit 1
-  fi
-done
+# Set Docker directories and paths
+DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
+DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
-# Authenticate with Google Cloud
-log_message "Authenticating with Google Cloud..."
-if [ -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]; then
-  gcloud auth activate-service-account --key-file="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
-else
-  log_message "ERROR: Service account JSON file not found: $SERVICE_ACCOUNT_JSON"
-  exit 1
-fi
+# Define image name
+TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
 
-# Set project and zone
-gcloud config set project $PROJECT_ID
-gcloud config set compute/zone $TPU_ZONE
+# Display configuration
+log_section "Configuration"
+log "Project ID: $PROJECT_ID"
+log "Image name: $TPU_IMAGE_NAME"
+log "Docker directory: $DOCKER_DIR"
+
+# Set up authentication
+setup_auth
 
 # Configure Docker to use European Google Container Registry
-log_message "Configuring Docker for eu.gcr.io..."
-gcloud auth configure-docker eu.gcr.io
+log "Configuring Docker for eu.gcr.io..."
+gcloud auth configure-docker eu.gcr.io --quiet
 
-# Set paths and variables
-TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
-DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
+# Build the Docker image
+log "Building Docker image..."
+if [ -f "$DOCKER_COMPOSE_FILE" ]; then
+    log "Using docker-compose to build image..."
+    docker-compose -f "$DOCKER_COMPOSE_FILE" build
+else
+    log "docker-compose.yml not found, using direct build command..."
+    docker build -t $TPU_IMAGE_NAME -f "$DOCKER_DIR/Dockerfile" "$DOCKER_DIR"
+fi
 
-# Build the TPU container image
-log_message "Building TPU image..."
-docker build -t $TPU_IMAGE_NAME -f "$DOCKER_DIR/Dockerfile" "$DOCKER_DIR"
+# Check if build was successful
+if [ $? -ne 0 ]; then
+    log_error "Docker build failed"
+    exit 1
+fi
 
-# Push the image to the European GCR
-log_message "Pushing image to eu.gcr.io..."
+# Push the image to Google Container Registry
+log "Pushing image to eu.gcr.io..."
 docker push $TPU_IMAGE_NAME
 
-# Configure Docker auth on TPU VM
-log_message "Configuring Docker on TPU VM..."
-gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE \
-  --command="gcloud auth configure-docker eu.gcr.io --quiet"
+# Verify push was successful
+if [ $? -ne 0 ]; then
+    log_error "Failed to push Docker image to GCR"
+    exit 1
+fi
 
-# Pull image on TPU VM
-log_message "Pulling image on TPU VM..."
-gcloud compute tpus tpu-vm ssh $TPU_NAME --zone=$TPU_ZONE \
-  --command="sudo docker pull $TPU_IMAGE_NAME"
-
-log_message "CI/CD setup completed successfully."
-log_message "TPU Image available at: $TPU_IMAGE_NAME"
-
-# Generate startup command for the TPU VM
-RUN_CMD="sudo docker run --privileged --rm \\
-  -v /dev:/dev \\
-  -v /lib/libtpu.so:/lib/libtpu.so \\
-  -p 5000:5000 \\
-  -p 6006:6006 \\
-  ${TPU_IMAGE_NAME}"
-
-log_message "To run the container on TPU VM, use:"
-log_message "$RUN_CMD"
+log_success "Docker image build and push completed successfully"
+log_success "Image available at: $TPU_IMAGE_NAME"
+exit 0

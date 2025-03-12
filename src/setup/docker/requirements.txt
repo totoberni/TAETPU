@@ -1,16 +1,11 @@
 # Core libraries
 numpy>=1.24.0
 
-
 # Transformers and ML libraries
-transformers>=4.30.0
-accelerate>=0.20.0
-datasets>=2.14.0
-evaluate>=0.4.0
 scikit-learn>=1.2.0
 
 # TPU monitoring
-tensorboard==2.13.0
+tensorboard==2.18.0
 torch-tb-profiler==0.4.3
 psutil==5.9.5
 

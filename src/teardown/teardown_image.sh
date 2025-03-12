@@ -2,81 +2,101 @@
 
 # --- Get script directory for absolute path references ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # --- Import common functions ---
 source "$PROJECT_DIR/src/utils/common.sh"
 
 # --- MAIN SCRIPT ---
 init_script 'Docker Image Teardown'
-ENV_FILE="$PROJECT_DIR/source/.env"
 
 # Load environment variables
 log "Loading environment variables..."
+ENV_FILE="$PROJECT_DIR/source/.env"
 load_env_vars "$ENV_FILE"
+
+# Get docker-compose path and parse image info
+DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
+DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
 # Validate required environment variables
 check_env_vars "PROJECT_ID" || exit 1
 
-# Set up authentication locally
+# Extract image details from docker-compose.yml if available
+if [[ -f "$DOCKER_COMPOSE_FILE" ]]; then
+    IMAGE_TAG=$(grep -o 'image: eu.gcr.io/${PROJECT_ID}/[^:]*:[^"]*' "$DOCKER_COMPOSE_FILE" | sed 's/image: //')
+    # Replace environment variables
+    IMAGE_TAG=$(eval echo "$IMAGE_TAG")
+    REPO_NAME=$(echo "$IMAGE_TAG" | cut -d':' -f1)
+    log_success "Found image reference in docker-compose.yml: $IMAGE_TAG"
+else
+    # Fallback to default if docker-compose.yml doesn't exist or doesn't contain the image
+    REPO_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu"
+    IMAGE_TAG="${REPO_NAME}:v1"
+    log_warning "docker-compose.yml not found or doesn't contain image reference. Using default: $IMAGE_TAG"
+fi
+
+# Set up authentication
 setup_auth
 
-# Define Docker image path
-IMAGE_NAME="gcr.io/${PROJECT_ID}/tae-tpu:v1"
-EU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
+# Display configuration
+log_section "Configuration"
+log "Project ID: $PROJECT_ID"
+log "Image to remove: $IMAGE_TAG"
 
-# Check if TPU exists and clean up there first
-if [[ -n "$TPU_NAME" && -n "$TPU_ZONE" ]]; then
-    log "Checking if TPU '$TPU_NAME' exists..."
-    if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
-        log "TPU VM exists. Cleaning up Docker images on TPU VM..."
+# Check if the repository exists using list command
+log "Checking for Docker images in Container Registry..."
+if gcloud container images list --repository="$(dirname "$REPO_NAME")" --format="value(name)" | grep -q "$(basename "$REPO_NAME")"; then
+    log_success "Found repository $REPO_NAME"
+    
+    # Check for image tags
+    log "Checking for tags in $REPO_NAME..."
+    if gcloud container images list-tags "$REPO_NAME" --format="value(tags)" | grep -q "v1"; then
+        log "Found image $IMAGE_TAG"
         
-        # Remove Docker image from TPU VM
-        vmssh "docker rmi $IMAGE_NAME $EU_IMAGE_NAME || true"
-        
-        log_success "Cleaned up Docker images on TPU VM"
+        # Confirm deletion
+        read -p "Are you sure you want to delete this Docker image from GCR? (y/n): " confirm
+        if [[ "$confirm" == "y" ]]; then
+            log "Deleting Docker image $IMAGE_TAG..."
+            if gcloud container images delete "$IMAGE_TAG" --quiet --force-delete-tags; then
+                log_success "Docker image deleted successfully from GCR"
+            else
+                log_warning "Failed to delete Docker image from GCR"
+            fi
+        else
+            log "GCR deletion cancelled."
+        fi
     else
-        log "TPU VM does not exist or is not accessible. Skipping TPU cleanup."
+        log_warning "No tag 'v1' found in repository $REPO_NAME"
     fi
 else
-    log "TPU_NAME or TPU_ZONE not set. Skipping TPU cleanup."
+    log_warning "Repository not found in GCR. Nothing to delete."
 fi
 
-# Check if the image exists in GCR
-log "Checking if Docker image exists in Container Registry..."
-
-# Check for the image in GCR
-GCR_CHECK=$(gcloud container images list --repository=gcr.io/${PROJECT_ID} --format="value(name)" | grep -c "tae-tpu" || true)
-EU_GCR_CHECK=$(gcloud container images list --repository=eu.gcr.io/${PROJECT_ID} --format="value(name)" | grep -c "tae-tpu" || true)
-
-if [[ "$GCR_CHECK" -eq 0 && "$EU_GCR_CHECK" -eq 0 ]]; then
-    log_warning "Docker image not found in Container Registry. Nothing to delete."
-    exit 0
+# Offer Docker system prune to clean up local resources
+if command -v docker &> /dev/null; then
+    log_section "Docker System Cleanup"
+    log "Docker system prune can remove all unused containers, networks, images, and volumes."
+    read -p "Would you like to run 'docker system prune' to clean up unused Docker resources? (y/n): " prune_confirm
+    if [[ "$prune_confirm" =~ ^[Yy]$ ]]; then
+        log "Running Docker system prune..."
+        docker system prune -f
+        
+        # Offer volume pruning
+        read -p "Would you like to prune Docker volumes as well? (y/n): " volume_confirm
+        if [[ "$volume_confirm" =~ ^[Yy]$ ]]; then
+            log "Pruning Docker volumes..."
+            docker volume prune -f
+            log_success "Docker volumes pruned successfully"
+        else
+            log "Docker volume pruning skipped"
+        fi
+        
+        log_success "Docker cleanup completed"
+    else
+        log "Docker system prune skipped"
+    fi
 fi
 
-# Confirm deletion
-read -p "Are you sure you want to delete the Docker image(s)? (y/n): " confirm
-if [[ "$confirm" != "y" ]]; then
-    log "Deletion cancelled."
-    exit 0
-fi
-
-# Delete the Docker image from GCR
-if [[ "$GCR_CHECK" -gt 0 ]]; then
-    log "Deleting Docker image from gcr.io..."
-    gcloud container images delete "$IMAGE_NAME" --quiet
-    log_success "Docker image deleted from gcr.io"
-fi
-
-if [[ "$EU_GCR_CHECK" -gt 0 ]]; then
-    log "Deleting Docker image from eu.gcr.io..."
-    gcloud container images delete "$EU_IMAGE_NAME" --quiet
-    log_success "Docker image deleted from eu.gcr.io"
-fi
-
-# Clean up local Docker images
-log "Cleaning up local Docker images..."
-docker rmi "$IMAGE_NAME" "$EU_IMAGE_NAME" 2>/dev/null || true
-
-log_success "Docker image teardown completed successfully"
-exit 0 
+log_success "Docker image teardown completed"
+exit 0
