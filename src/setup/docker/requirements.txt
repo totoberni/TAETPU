@@ -14,9 +14,8 @@ Flask==2.3.3
 gunicorn==21.2.0
 
 # Google Cloud
-google-cloud-storage==2.10.0
-google-cloud-monitoring==2.11.0
-google-cloud-logging==3.5.0
+google-cloud-storage~=2.10.0
+google-cloud-monitoring~=2.11.0
 
 # Data processing and utilities
 pandas>=2.0.0

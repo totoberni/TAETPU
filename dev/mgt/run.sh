@@ -1,146 +1,59 @@
 #!/bin/bash
 
-# --- DETERMINE SCRIPT AND PROJECT DIRECTORIES ---
+# --- Basic setup ---
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SRC_DIR="$PROJECT_DIR/dev/src"
 
-# --- IMPORT COMMON FUNCTIONS ---
+# --- Import common functions ---
 source "$PROJECT_DIR/src/utils/common.sh"
 
-show_usage() {
-  echo "Usage: $0 [filename1.py filename2.py ...] [script_args...]"
-  echo ""
-  echo "Run Python file(s) on the TPU VM using Docker volumes."
-  echo ""
-  echo "Arguments:"
-  echo "  filename1.py filename2.py   Python files to execute (must be in /app/mount)"
-  echo "  script_args                 Optional: Arguments to pass to the last Python script"
-  echo ""
-  echo "Examples:"
-  echo "  $0 example.py               # Run a single file"
-  echo "  $0 train.py --epochs 10     # Run with arguments"
+# --- Parse arguments ---
+if [ $# -eq 0 ] || [[ "$1" != *.py ]]; then
+  echo "Usage: $0 [filename.py] [script_args...]"
+  echo "Run Python file on TPU VM."
   exit 1
-}
-
-# Exit if no arguments
-[ $# -eq 0 ] && show_usage
-
-# Load environment variables
-source "$PROJECT_DIR/source/.env"
-
-# Check for required environment variables
-check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
-
-# Configure Docker authentication on TPU VM
-log "Configuring Docker authentication on TPU VM..."
-vmssh "gcloud auth configure-docker gcr.io --quiet"
-
-# Parse arguments - collect Python files and script arguments
-FILES_TO_RUN=()
-SCRIPT_ARGS=()
-COLLECTING_FILES=true
-
-for arg in "$@"; do
-  if [[ "$COLLECTING_FILES" == "true" && "$arg" == *.py ]]; then
-    # Clean up any path separators and get just the filename
-    clean_file=$(basename "$arg")
-    FILES_TO_RUN+=("$clean_file")
-  else
-    COLLECTING_FILES=false
-    SCRIPT_ARGS+=("$arg")
-  fi
-done
-
-# Define Docker image path
-DOCKER_IMAGE="gcr.io/${PROJECT_ID}/tae-tpu:v1"
-
-# Container mount path
-CONTAINER_MOUNT_PATH="/app/mount"
-
-# Prepare volume mounts using array for proper quoting
-VOLUME_MOUNTS=()
-
-# Get volumes mounted by previous mount.sh run
-# This uses the same volume mounting approach as mount.sh
-if [ -d "$SRC_DIR" ]; then
-  VOLUME_MOUNTS+=("-v" "$SRC_DIR:$CONTAINER_MOUNT_PATH")
 fi
 
-# Pull Docker image if needed
-log "Ensuring Docker image is available..."
-vmssh "sudo docker pull $DOCKER_IMAGE || echo 'Using cached image'"
+PYTHON_FILE=$(basename "$1")
+shift
+SCRIPT_ARGS=("$@")
 
-# Convert volume mounts array to a properly escaped string for docker command
-VOLUME_MOUNT_STR=""
-for ((i=0; i<${#VOLUME_MOUNTS[@]}; i+=2)); do
-  VOLUME_MOUNT_STR+="${VOLUME_MOUNTS[i]} \"${VOLUME_MOUNTS[i+1]}\" "
+# --- Load environment variables ---
+source "$PROJECT_DIR/source/.env"
+check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
+
+# --- Define Docker image path ---
+DOCKER_IMAGE="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
+
+# --- Verify file exists ---
+log "Verifying $PYTHON_FILE exists on TPU VM"
+FILE_CHECK=$(vmssh "test -f /tmp/app/mount/$PYTHON_FILE && echo 'EXISTS' || echo 'NOT_EXISTS'")
+
+if [[ "$FILE_CHECK" != *"EXISTS"* ]]; then
+  log_error "File $PYTHON_FILE not found on TPU VM. Please mount it first."
+  exit 1
+fi
+
+# --- Run the container ---
+log "Running $PYTHON_FILE on TPU VM"
+
+# Note: We use the environment variables already defined in the container
+DOCKER_CMD="docker run --rm --privileged \
+  --device=/dev/accel0 \
+  -v /tmp/app/mount:/app/mount \
+  -v /lib/libtpu.so:/lib/libtpu.so \
+  -w /app \
+  $DOCKER_IMAGE \
+  python /app/mount/$PYTHON_FILE"
+
+# Add script arguments
+for arg in "${SCRIPT_ARGS[@]}"; do
+  DOCKER_CMD+=" \"$arg\""
 done
 
-# Run each file
-for (( i=0; i<${#FILES_TO_RUN[@]}; i++ )); do
-  file="${FILES_TO_RUN[$i]}"
-  log "Running: $file"
-  
-  # Verify file exists in src directory
-  if [ ! -f "$SRC_DIR/$file" ]; then
-    log_error "File $file not found in $SRC_DIR. Please make sure file exists."
-    continue
-  fi
-  
-  # Container file path
-  container_file="$CONTAINER_MOUNT_PATH/$file"
-  
-  # Prepare Docker run command
-  docker_cmd="sudo docker run --rm --privileged"
-  
-  # Add device
-  docker_cmd+=" --device=/dev/accel0"
-  
-  # Add environment variables
-  docker_cmd+=" -e PJRT_DEVICE=TPU"
-  docker_cmd+=" -e XLA_USE_BF16=1"
-  docker_cmd+=" -e PYTHONUNBUFFERED=1"
-  docker_cmd+=" -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so"
-  docker_cmd+=" -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true"
-  
-  # Add volume mount
-  docker_cmd+=" $VOLUME_MOUNT_STR"
-  docker_cmd+=" -v /lib/libtpu.so:/lib/libtpu.so"
-  
-  # Set working directory
-  docker_cmd+=" -w /app"
-  
-  # Add image
-  docker_cmd+=" $DOCKER_IMAGE"
-  
-  # Add command and file to run
-  docker_cmd+=" python \"$container_file\""
-  
-  # Add script args (only for the last file)
-  if [[ $i -eq $(( ${#FILES_TO_RUN[@]} - 1 )) && ${#SCRIPT_ARGS[@]} -gt 0 ]]; then
-    # Quote each argument separately to handle spaces
-    for arg in "${SCRIPT_ARGS[@]}"; do
-      docker_cmd+=" \"$arg\""
-    done
-  fi
-  
-  # Execute Docker run command on TPU VM
-  log "Executing Docker command..."
-  if ! vmssh "$docker_cmd"; then
-    log_warning "Command failed, trying without sudo..."
-    # Remove sudo from the command and try again
-    docker_cmd=${docker_cmd/sudo /}
-    if ! vmssh "$docker_cmd"; then
-      log_error "Execution failed for $file"
-    else
-      log_success "Successfully executed $file without sudo"
-    fi
-  else
-    log_success "Successfully executed $file"
-  fi
-done
+# Execute with or without sudo
+vmssh "sudo $DOCKER_CMD" || vmssh "$DOCKER_CMD"
 
-log_success "All executions completed"
-exit 0 
+log_success "Execution complete"
+exit 0

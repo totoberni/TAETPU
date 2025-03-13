@@ -63,15 +63,15 @@ Transformer models are computationally intensive to train and evaluate. Google C
 │   │   │   └── verify_setup.sh   # Script to verify TPU setup and PyTorch/XLA
 │   │   └── docker/               # Docker configuration
 │   │       ├── Dockerfile        # Docker image definition
+│   │       ├── docker-compose.yml # Docker Compose configuration
 │   │       ├── entrypoint.sh     # Container entry point script
-│   │       ├── tpu.env           # TPU-specific environment variables
 │   │       └── requirements.txt  # Python dependencies
 │   ├── teardown/                 # Scripts for resource cleanup
 │   │   ├── teardown_bucket.sh    # Script to delete GCS bucket
 │   │   ├── teardown_image.sh     # Script to clean up Docker images locally and in GCR
 │   │   └── teardown_tpu.sh       # Script to delete TPU VM
 │   └── utils/                    # Shared utilities
-│       └── common_logging.sh     # Common bash utilities and logging functions
+│       └── common.sh             # Common bash utilities, logging, and user interaction functions
 └── source/                       # Configuration and credential files
     ├── .env                      # Environment variables and configuration
     └── service-account.json      # Service account key (replace with your own)
@@ -107,6 +107,8 @@ RUNTIME_VERSION=tpu-ubuntu2204-base
 
 # Cloud Storage
 BUCKET_NAME=your-bucket-name
+BUCKET_DATRAIN=your-bucket-name/data
+BUCKET_TENSORBOARD=your-bucket-name/tensorboard
 
 # Service Account details
 SERVICE_ACCOUNT_JSON=your-service-account.json
@@ -155,28 +157,29 @@ Create a bucket for storing experiment data, model checkpoints, and logs:
 Build your Docker image and push it to Google Container Registry:
 
 ```bash
-x
+./src/setup/scripts/setup_image.sh
 ```
 
 This script:
 - Creates a temporary build context with required files
-- Copies utility modules and Docker configuration
-- Builds the Docker image locally
-- Tags and pushes it to Google Container Registry
+- Uses multi-stage builds for smaller, more efficient images
+- Enables BuildKit for faster parallel builds
+- Tags and pushes the image to Google Container Registry
 
 #### 5. Set Up TPU VM and Pull Docker Image
 
-Create the TPU VM and pull the Docker image:
+Create the TPU VM, pull the Docker image, and start the container:
 
 ```bash
 ./src/setup/scripts/setup_tpu.sh
 ```
 
 This script:
-- Verifies the TPU VM doesn't already exist
 - Creates the TPU VM with appropriate parameters
 - Configures Docker authentication on the TPU VM
 - Pulls the Docker image from Google Container Registry
+- Creates necessary directories for volume mounts
+- Starts the container with proper TPU configuration
 
 ## 2. Development Workflow (CI/CD)
 
@@ -223,16 +226,16 @@ The script:
 
 ### Removing Files from TPU VM
 
-The `scrap.sh` script cleans up files from the TPU VM:
+The `scrap.sh` script cleans up files from the TPU VM with confirmation prompts for safety:
 
 ```bash
-# Remove specific files
+# Remove specific files (will prompt for confirmation)
 ./dev/mgt/scrap.sh file1.py file2.py
 
-# Remove all files
+# Remove all files (will prompt for confirmation)
 ./dev/mgt/scrap.sh --all
 
-# Prune Docker volumes
+# Prune Docker volumes (will prompt for confirmation)
 ./dev/mgt/scrap.sh --prune
 ```
 
@@ -256,25 +259,30 @@ This enables:
 - Immediate testing without container rebuilds
 - Continuous feedback during development
 
-## 3. Web Application Infrastructure
+## 3. Docker Container Architecture
 
-The Docker container includes a built-in web application infrastructure for monitoring and visualization:
+The project uses an optimized Docker container architecture for TPU experiments:
+
+### Container Design
+
+- **Multi-stage build**: Smaller final image with only runtime dependencies
+- **Separation of concerns**: 
+  - Dockerfile handles build instructions and dependencies
+  - docker-compose.yml manages environment variables and volume mounts
+  - entrypoint.sh handles container initialization
 
 ### Exposed Services
 
 - **Flask API Server**: Port 5000
   - Provides REST API for experiment management
   - Offers TPU monitoring endpoints
-  - Runs in the container by default
 
 - **TensorBoard**: Port 6006
   - Visualization of training metrics
   - Model graph exploration
   - Profile TPU performance
 
-### Container Architecture
-
-The Docker container is designed with:
+### Container Features
 
 1. **Proper TPU Access**:
    - Maps TPU devices into the container
@@ -282,28 +290,14 @@ The Docker container is designed with:
    - Configures library paths for TPU access
 
 2. **Monitoring Backend**:
-   - Custom entrypoint script for service management
-   - Automatic logging and metric collection
-   - REST API for external monitoring
+   - Automatic TensorBoard startup
+   - Service account authentication
+   - TPU device verification
 
 3. **Persistent Storage**:
    - Volume mounts for code deployment
    - Configurable data storage location
    - Log persistence across container restarts
-
-### Running the Web Services
-
-The services are automatically started when the container runs:
-
-```bash
-# Run the container with web services enabled
-docker run --privileged --rm \
-  -v /dev:/dev \
-  -v /lib/libtpu.so:/lib/libtpu.so \
-  -p 5000:5000 \
-  -p 6006:6006 \
-  gcr.io/${PROJECT_ID}/tae-tpu:v1
-```
 
 ## 4. Teardown Resources
 
@@ -314,13 +308,48 @@ When you're done with your TPU resources, clean up in this order:
 ./src/teardown/teardown_tpu.sh
 
 # Delete the Docker images (local and GCR)
+# Will prompt for confirmation before destructive operations
 ./src/teardown/teardown_image.sh
 
 # Delete the GCS bucket (will prompt for confirmation)
 ./src/teardown/teardown_bucket.sh
 ```
 
-## 5. Further Instructions
+## 5. Utility Functions
+
+The project includes a comprehensive set of utility functions in `src/utils/common.sh`:
+
+### Logging Functions
+
+- `log()`: Standard logging with timestamp
+- `log_success()`: Success messages (green)
+- `log_warning()`: Warning messages (yellow)
+- `log_error()`: Error messages (red)
+- `log_section()`: Section headers (blue)
+
+### User Interaction Functions
+
+- `confirm_action()`: Ask for user confirmation with customizable prompt
+- `confirm_delete()`: Specifically ask for deletion confirmation with safety defaults
+
+### Error Handling
+
+- `handle_error()`: Standardized error handling
+- `log_elapsed_time()`: Track and display script execution time
+
+### Environment Management
+
+- `load_env_vars()`: Load environment variables from .env file
+- `check_env_vars()`: Validate required environment variables
+- `setup_auth()`: Set up Google Cloud authentication
+
+### TPU Management
+
+- `vmssh()`: Execute commands on TPU VM via SSH
+- `vmssh_out()`: Execute commands and capture output
+- `generate_docker_cmd()`: Generate Docker commands with TPU access
+
+## 6. Further Instructions
 
 ### Enhanced Monitoring & Logging
 

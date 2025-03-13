@@ -1,67 +1,72 @@
+FROM python:3.11-slim AS builder
+
+# Set build environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Install system dependencies required for building
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopenblas-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file - paths relative to project root
+COPY src/setup/docker/requirements.txt /app/
+
+# Install all dependencies in a single layer for better caching
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt \
+    -f https://storage.googleapis.com/libtpu-releases/index.html && \
+    rm -rf /root/.cache/pip
+
+# Runtime image
 FROM python:3.11-slim
 
-# Set essential environment variables (non-configurable ones only)
+# Runtime environment variables
 ENV PYTHONUNBUFFERED=1 \
     XLA_METRICS_FILE=/tmp/xla_metrics.json \
     PATH="${PATH}:/app/.local/bin"
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install runtime system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas-dev \
     curl \
     wget \
     git \
-    build-essential \
-    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Google Cloud SDK
-RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
-    tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
-    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
-    apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - && \
-    apt-get update && apt-get install -y google-cloud-sdk && \
-    rm -rf /var/lib/apt/lists/*
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy requirements.txt and install dependencies
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir numpy && \
-    pip install --no-cache-dir torch~=2.6.0 'torch_xla[tpu]~=2.6.0' \
-    -f https://storage.googleapis.com/libtpu-releases/index.html \
-    -f https://storage.googleapis.com/libtpu-wheels/index.html && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Copy utility files
-COPY utils /app/utils
-
-# Create required directories
+# Create directory structure
 RUN mkdir -p /app/src \
              /app/utils/monitoring \
              /app/mount \
              /app/data \
              /app/models \
              /app/logs \
-             /app/tensorboard
+             /app/tensorboard && \
+    echo '[GoogleCompute]\nservice_account = default' > /etc/boto.cfg
 
-# Copy entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Copy utility files - now with paths relative to project root
+COPY src/utils/ /app/utils/
 
 # Set up user for TPU access
 RUN groupadd -g 1000 tpuuser && \
     useradd -u 1000 -g tpuuser -s /bin/bash -m tpuuser && \
     chown -R tpuuser:tpuuser /app
 
-# Configure gsutil
-RUN echo '[GoogleCompute]\nservice_account = default' > /etc/boto.cfg
+# Copy and set entrypoint
+COPY src/setup/docker/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Expose ports
 EXPOSE 5000 6006
 
-# Set entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["python", "/app/src/main.py"]
+CMD ["bash"]

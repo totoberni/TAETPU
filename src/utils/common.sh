@@ -29,6 +29,34 @@ log_section() {
   echo -e "\n\033[1;34m=== $1 ===\033[0m"  # Bold blue section header
 }
 
+# --- USER INTERACTION FUNCTIONS ---
+# Ask for user confirmation with customizable prompt and default
+confirm_action() {
+    local prompt="$1"
+    local default="$2"
+    
+    if [[ "$default" == "y" ]]; then
+        prompt="$prompt [Y/n]: "
+    else
+        prompt="$prompt [y/N]: "
+    fi
+    
+    read -p "$prompt" response
+    response=${response,,} # Convert to lowercase
+    
+    if [[ "$default" == "y" ]]; then
+        [[ -z "$response" || "$response" == "y" || "$response" == "yes" ]]
+    else
+        [[ "$response" == "y" || "$response" == "yes" ]]
+    fi
+}
+
+# Specifically ask for deletion confirmation
+confirm_delete() {
+    local item_desc="${1:-these items}"
+    confirm_action "Are you sure you want to delete $item_desc? This operation is irreversible" "n"
+}
+
 # --- SCRIPT STATUS TRACKING ---
 SCRIPT_START_TIME=$(date +%s)
 
@@ -216,7 +244,6 @@ vmssh_out() {
     --worker="$worker" \
     --command="$cmd" \
     --output-directory="$output_dir" \
-    --ssh-flag="-T"
   
   local exit_code=$?
   

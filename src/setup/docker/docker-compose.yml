@@ -3,13 +3,15 @@ version: '3.8'
 services:
   tpu-service:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../../..  # Points to project root
+      dockerfile: src/setup/docker/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     image: eu.gcr.io/${PROJECT_ID}/tae-tpu:v1
     container_name: tae-tpu-container
     privileged: true
     environment:
-      # TPU-specific environment variables
+      # TPU-specific compiler flags
       - PJRT_DEVICE=TPU
       - XLA_USE_BF16=1
       - PT_XLA_DEBUG_LEVEL=1
@@ -18,20 +20,23 @@ services:
       - XRT_TPU_CONFIG=localservice;0;localhost:51011
       - TF_XLA_FLAGS=--tf_xla_enable_xla_devices
       - ALLOW_MULTIPLE_LIBTPU_LOAD=1
-      # Project-specific environment variables
+      # Project variables
       - PROJECT_ID=${PROJECT_ID}
       - BUCKET_NAME=${BUCKET_NAME}
       - BUCKET_DATRAIN=${BUCKET_DATRAIN}
       - BUCKET_TENSORBOARD=${BUCKET_TENSORBOARD}
     volumes:
+      # System volumes - essential for TPU access
       - /dev:/dev
       - /lib/libtpu.so:/lib/libtpu.so
+      # Authentication
       - ../../source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
+      # Application volumes
       - ../../../mount:/app/mount
       - ../../../data:/app/data
       - ../../../models:/app/models
       - ../../../logs:/app/logs
     ports:
-      - "5000:5000"  # Application port
-      - "6006:6006"  # TensorBoard port
+      - "5000:5000"
+      - "6006:6006"
     restart: unless-stopped
