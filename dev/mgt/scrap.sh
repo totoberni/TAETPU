@@ -34,7 +34,8 @@ done
 source "$PROJECT_DIR/source/.env"
 check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 
-# --- Remove files ---
+# --- Perform actions based on arguments ---
+# For removing all files
 if [ "$REMOVE_ALL" = true ]; then
   if confirm_delete "ALL files in the TPU VM mount directory"; then
     log "Removing all files from TPU VM"
@@ -46,28 +47,47 @@ if [ "$REMOVE_ALL" = true ]; then
   fi
 fi
 
-for dir in "${DIRECTORIES[@]}"; do
-  if confirm_delete "directory: $dir"; then
-    log "Removing directory: $dir"
-    vmssh "rm -rf /tmp/app/mount/$dir"
-    log_success "Directory $dir removed"
+# For removing specific directories
+if [ ${#DIRECTORIES[@]} -gt 0 ]; then
+  log_section "Directory Operations"
+  log "Directories selected for deletion:"
+  for dir in "${DIRECTORIES[@]}"; do
+    log "  - $dir"
+  done
+  
+  if confirm_delete "these directories"; then
+    for dir in "${DIRECTORIES[@]}"; do
+      log "Processing directory: $dir"
+      vmssh "rm -rf /tmp/app/mount/$dir"
+      log_success "Directory processed: $dir"
+    done
   else
-    log "Skipping directory: $dir"
+    log "Directory deletion cancelled by user"
   fi
-done
+fi
 
-for file in "${FILES[@]}"; do
-  if confirm_delete "file: $file"; then
-    log "Removing file: $file"
-    vmssh "rm -f /tmp/app/mount/$file"
-    log_success "File $file removed"
+# For removing specific files
+if [ ${#FILES[@]} -gt 0 ]; then
+  log_section "File Operations"
+  log "Files selected for deletion:"
+  for file in "${FILES[@]}"; do
+    log "  - $file"
+  done
+  
+  if confirm_delete "these files"; then
+    for file in "${FILES[@]}"; do
+      log "Processing file: $file"
+      vmssh "rm -f /tmp/app/mount/$file"
+      log_success "File processed: $file"
+    done
   else
-    log "Skipping file: $file"
+    log "File deletion cancelled by user"
   fi
-done
+fi
 
 # --- Prune Docker volumes ---
 if [ "$PRUNE_VOLUMES" = true ]; then
+  log_section "Docker Volume Pruning"
   if confirm_action "Would you like to prune Docker volumes on the TPU VM?" "n"; then
     log "Pruning Docker volumes on TPU VM"
     vmssh "sudo docker volume prune --force"
@@ -77,8 +97,10 @@ if [ "$PRUNE_VOLUMES" = true ]; then
   fi
 fi
 
-# --- Update file listing ---
-vmssh "find /tmp/app/mount -type f > /tmp/app/mount_files.txt" || true
+# --- List remaining files ---
+log_section "Remaining Files"
+log "Listing remaining files in tmp/app/mount directory..."
+vmssh "find /tmp/app/mount -type f | sort"
 
 log_success "Cleanup complete"
 exit 0

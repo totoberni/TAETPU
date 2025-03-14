@@ -209,14 +209,15 @@ function ensure_directory() {
 # Execute SSH command on TPU VM
 vmssh() {
   local cmd="$1"
+  local worker="${2:-all}"  # Default to all workers if not specified
   
-  log "Executing SSH command on TPU VM"
+  log "Executing SSH command on TPU VM (worker: $worker)"
   
   # Execute the command on the TPU VM
   gcloud compute tpus tpu-vm ssh "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
-    --worker=all \
+    --worker="$worker" \
     --command="$cmd"
   
   local exit_code=$?

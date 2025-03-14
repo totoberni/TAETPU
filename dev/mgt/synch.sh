@@ -36,6 +36,7 @@ CONTAINER_NAME="tae-tpu-dev"
 
 # --- Sync function ---
 sync_files() {
+  log_section "File Synchronization"
   log "Syncing files to TPU VM"
   
   # Create remote directory and clear existing files
@@ -55,13 +56,21 @@ sync_files() {
 
 # --- Restart container function ---
 restart_container() {
-  log "Restarting container on TPU VM"
+  log_section "Container Management"
+  log "Managing container on TPU VM"
+  
+  if ! confirm_action "Do you want to restart the container?" "y"; then
+    log "Container restart skipped"
+    return 0
+  fi
   
   # Stop any existing container
+  log "Stopping existing container if running"
   vmssh "docker ps -q -f name=$CONTAINER_NAME | xargs -r docker stop"
   vmssh "docker ps -a -q -f name=$CONTAINER_NAME | xargs -r docker rm"
   
   # Start new container
+  log "Starting new container"
   vmssh "docker run \
     --name $CONTAINER_NAME \
     --rm \
@@ -78,10 +87,12 @@ restart_container() {
 
 # --- Watch function ---
 watch_for_changes() {
+  log_section "Watch Mode"
   log "Starting watch mode (Ctrl+C to stop)"
   
   if command -v inotifywait &> /dev/null; then
     # Use inotifywait
+    log "Using inotifywait for file monitoring"
     while true; do
       inotifywait -r -e modify,create,delete "$SRC_DIR"
       sync_files
@@ -103,13 +114,21 @@ watch_for_changes() {
 }
 
 # --- Main execution ---
+log_section "Initial Setup"
+
 # Perform initial sync
 sync_files
 
 # Restart container if requested
-[ "$RESTART_CONTAINER" = true ] && restart_container
+if [ "$RESTART_CONTAINER" = true ]; then
+  restart_container
+fi
 
 # Watch for changes if requested
-[ "$WATCH_MODE" = true ] && watch_for_changes
+if [ "$WATCH_MODE" = true ]; then
+  watch_for_changes
+else
+  log_success "Synchronization complete"
+fi
 
 exit 0 

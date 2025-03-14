@@ -27,15 +27,21 @@ check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 DOCKER_IMAGE="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
 
 # --- Verify file exists ---
+log_section "File Verification"
 log "Verifying $PYTHON_FILE exists on TPU VM"
-FILE_CHECK=$(vmssh "test -f /tmp/app/mount/$PYTHON_FILE && echo 'EXISTS' || echo 'NOT_EXISTS'")
 
-if [[ "$FILE_CHECK" != *"EXISTS"* ]]; then
+# Direct verification using exit code rather than output capture
+vmssh "test -f /tmp/app/mount/$PYTHON_FILE"
+
+if [ $? -ne 0 ]; then
   log_error "File $PYTHON_FILE not found on TPU VM. Please mount it first."
   exit 1
 fi
 
+log_success "File verified successfully"
+
 # --- Run the container ---
+log_section "Running Script"
 log "Running $PYTHON_FILE on TPU VM"
 
 # Note: We use the environment variables already defined in the container
