@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # Set essential environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PJRT_DEVICE=TPU
 
 WORKDIR /app
 

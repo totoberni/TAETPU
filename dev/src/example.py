@@ -31,8 +31,6 @@ def mounted_example():
     
     # Check if running on a TPU
     try:
-        import torch_xla
-        
         # Get device (TPU)
         device = xm.xla_device()
         print(f"XLA device: {device}")
@@ -54,8 +52,8 @@ def mounted_example():
         print("===============EXTRA TEST===============")
         print("\nMounted code execution successful!")
         
-    except ImportError:
-        print("Not running on TPU: torch_xla not available")
+    except ImportError as e:
+        print(f"Not running on TPU: torch_xla not available - {e}")
         return False
     except Exception as e:
         print(f"Error during TPU operation: {e}")

@@ -44,6 +44,11 @@ log "Building and pushing Docker image..."
 # Change directory to project root (for build context)
 pushd "$PROJECT_DIR" > /dev/null
 
+# Export required environment variables for docker-compose
+export PROJECT_ID
+export BUCKET_NAME
+export SERVICE_ACCOUNT_JSON
+
 # Build using docker-compose
 log "Building with docker-compose..."
 docker-compose -f "$DOCKER_COMPOSE_FILE" build

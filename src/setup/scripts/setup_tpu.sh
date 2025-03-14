@@ -13,7 +13,7 @@ ENV_FILE="$PROJECT_DIR/source/.env"
 load_env_vars "$ENV_FILE"
 
 # Essential environment validation only
-check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "RUNTIME_VERSION" || exit 1
+check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "RUNTIME_VERSION" "SERVICE_ACCOUNT_EMAIL" || exit 1
 
 # Define image name
 TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
@@ -26,6 +26,7 @@ log "TPU Name: $TPU_NAME"
 log "TPU Type: $TPU_TYPE"
 log "Zone: $TPU_ZONE"
 log "Image: $TPU_IMAGE_NAME"
+log "Service Account: $SERVICE_ACCOUNT_EMAIL"
 
 # Set up authentication
 log "Setting up authentication..."
@@ -45,7 +46,8 @@ if ! gcloud compute tpus tpu-vm list --filter="name:$TPU_NAME" --format="value(n
     gcloud compute tpus tpu-vm create "$TPU_NAME" \
         --zone="$TPU_ZONE" \
         --accelerator-type="$TPU_TYPE" \
-        --version="$RUNTIME_VERSION"
+        --version="$RUNTIME_VERSION" \
+        --service-account="$SERVICE_ACCOUNT_EMAIL"
     
     if [ $? -ne 0 ]; then
         log_error "Failed to create TPU VM"
@@ -85,6 +87,7 @@ sudo docker rm -f $CONTAINER_NAME 2>/dev/null || true
 # Run the container
 sudo docker run -d --name $CONTAINER_NAME \
     --privileged \
+    --net=host \
     -p 5000:5000 -p 6006:6006 \
     -v /dev:/dev \
     -v /lib/libtpu.so:/lib/libtpu.so \
