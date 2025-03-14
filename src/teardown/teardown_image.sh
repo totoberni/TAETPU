@@ -33,6 +33,7 @@ if [[ -f "$DOCKER_COMPOSE_FILE" ]]; then
     REPO_NAME=$(echo "$FULL_IMAGE_REF" | cut -d':' -f1)
     log_success "Found repository in docker-compose.yml: $REPO_NAME"
 else
+
     # Fallback to default if docker-compose.yml doesn't exist
     REPO_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu"
     log_warning "docker-compose.yml not found. Using default repository: $REPO_NAME"
@@ -69,6 +70,7 @@ if gcloud container images list --repository="$(dirname "$REPO_NAME")" --format=
                 for ((i=1; i<=MAX_ITERATIONS; i++)); do
                     log "Manual deletion attempt $i of $MAX_ITERATIONS"
                     
+                    gcloud container images list-tags "eu.gcr.io/infra-tempo401122/tae-tpu" --format="value(digest)"
                     # Get all digests
                     DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="value(digest)" 2>/dev/null)
                     

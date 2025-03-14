@@ -6,6 +6,11 @@ on the TPU Docker container without rebuilding the image.
 """
 import os
 import torch
+import torch_xla.core.xla_model as xm
+# Import runtime module for PJRT functionality
+import torch_xla.runtime as xr
+# Import for xla:// distributed initialization method
+import torch_xla.distributed.xla_backend
 
 def mounted_example():
     """Simple function to demonstrate mounted code execution on TPU."""
@@ -17,10 +22,16 @@ def mounted_example():
     print(f"Current directory: {os.getcwd()}")
     print(f"Directory contents: {os.listdir()}")
     
-    # Check if running on a TPU (requires torch_xla)
+    # Print PJRT runtime information
+    print(f"XLA Runtime information:")
+    print(f"- World size: {xr.world_size()}")
+    print(f"- Process index: {xr.process_index()}")
+    print(f"- Global device count: {xr.global_device_count()}")
+    print(f"- Global ordinal: {xr.global_ordinal()}")
+    
+    # Check if running on a TPU
     try:
         import torch_xla
-        import torch_xla.core.xla_model as xm
         
         # Get device (TPU)
         device = xm.xla_device()

@@ -5,26 +5,15 @@ services:
     build:
       context: ../../..  # Points to project root
       dockerfile: src/setup/docker/Dockerfile
-      args:
-        - BUILDKIT_INLINE_CACHE=1
     image: eu.gcr.io/${PROJECT_ID}/tae-tpu:v1
     container_name: tae-tpu-container
     privileged: true
     environment:
-      # TPU-specific compiler flags
+      # PyTorch/XLA TPU configuration
       - PJRT_DEVICE=TPU
-      - XLA_USE_BF16=1
-      - PT_XLA_DEBUG_LEVEL=1
-      - NEXT_PLUGGABLE_DEVICE_USE_C_API=true
-      - TF_CPP_MIN_LOG_LEVEL=0
-      - XRT_TPU_CONFIG=localservice;0;localhost:51011
-      - TF_XLA_FLAGS=--tf_xla_enable_xla_devices
-      - ALLOW_MULTIPLE_LIBTPU_LOAD=1
       # Project variables
       - PROJECT_ID=${PROJECT_ID}
       - BUCKET_NAME=${BUCKET_NAME}
-      - BUCKET_DATRAIN=${BUCKET_DATRAIN}
-      - BUCKET_TENSORBOARD=${BUCKET_TENSORBOARD}
     volumes:
       # System volumes - essential for TPU access
       - /dev:/dev

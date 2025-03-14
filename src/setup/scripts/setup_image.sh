@@ -22,15 +22,9 @@ check_env_vars "PROJECT_ID" || exit 1
 DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
 DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
-# Extract image name from docker-compose.yml
-if [[ -f "$DOCKER_COMPOSE_FILE" ]]; then
-    FULL_IMAGE_REF=$(grep -o 'image: eu.gcr.io/${PROJECT_ID}/[^[:space:]]*' "$DOCKER_COMPOSE_FILE" | sed 's/image: //')
-    TPU_IMAGE_NAME=$(eval echo "$FULL_IMAGE_REF")
-    log_success "Image reference: $TPU_IMAGE_NAME"
-else
-    TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
-    log_warning "Using default image name: $TPU_IMAGE_NAME"
-fi
+# Set image name
+TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
+log_success "Image reference: $TPU_IMAGE_NAME"
 
 # Display configuration
 log_section "Configuration"
@@ -44,25 +38,15 @@ setup_auth
 log "Configuring Docker for GCR..."
 gcloud auth configure-docker eu.gcr.io --quiet
 
-# Enable BuildKit for faster builds with better caching
-export DOCKER_BUILDKIT=1
-export BUILDKIT_PROGRESS=plain
-
 # Build and push Docker image
 log "Building and pushing Docker image..."
 
 # Change directory to project root (for build context)
 pushd "$PROJECT_DIR" > /dev/null
 
-# Export environment variables for docker-compose
-while IFS='=' read -r key value || [[ -n "$key" ]]; do
-    [[ $key =~ ^#.*$ ]] || [[ -z "$key" ]] && continue
-    export "$key=$value"
-done < "$ENV_FILE"
-
 # Build using docker-compose
 log "Building with docker-compose..."
-docker-compose -f "$DOCKER_COMPOSE_FILE" build --progress plain
+docker-compose -f "$DOCKER_COMPOSE_FILE" build
 
 # Check build status
 if [ $? -ne 0 ]; then
