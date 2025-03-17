@@ -37,15 +37,7 @@ This repository contains a framework for conducting Transformer model ablation e
 │   │       ├── entrypoint.sh     # Container entry point script
 │   │       └── requirements.txt  # Python dependencies
 │   ├── data/                     # Data processing and management
-│   │   ├── core/                 # Core data functionality
-│   │   │   ├── config_loader.py  # Configuration loading utilities
-│   │   │   └── __init__.py       # Package exports
-│   │   ├── buckets/              # GCS bucket operations
-│   │   │   ├── import_data.py    # Download datasets from HuggingFace
-│   │   │   ├── down_bucket.py    # Download from GCS buckets
-│   │   │   ├── test_bucket.py    # Test GCS bucket access
-│   │   │   └── __init__.py       # Package exports
-│   │   ├── outputs/              # Local dataset storage
+│   │   ├── downloads/            # Local dataset storage
 │   │   ├── data_ops.sh           # Unified data operations script
 │   │   └── __init__.py           # Package exports
 │   ├── teardown/                 # Scripts for resource cleanup
@@ -111,6 +103,11 @@ BUCKET_TENSORBOARD=your-bucket-name/tensorboard
 # Service Account details
 SERVICE_ACCOUNT_JSON=your-service-account.json
 SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
+
+# Dataset Configuration
+# Format: DATASET_[KEY]_NAME = the dataset name/path on Hugging Face
+DATASET_GUTENBERG_NAME="nbeerbower/gutenberg2-dpo"
+DATASET_EMOTION_NAME="dair-ai/emotion"
 ```
 
 > **IMPORTANT:** The `.env` file and service account key files are excluded from version control. Never commit these files to the repository.
@@ -154,14 +151,6 @@ Create the TPU VM, pull the Docker image, and start the container:
 ./src/setup/scripts/setup_tpu.sh
 ```
 
-### 2.5 Verify Setup
-
-Verify that your TPU environment is correctly set up:
-
-```bash
-./src/setup/scripts/verify_setup.sh
-```
-
 ## 3. Development Workflow (CI/CD)
 
 The project implements a streamlined CI/CD workflow for rapid iteration without rebuilding Docker images for every code change.
@@ -185,7 +174,16 @@ The project provides a unified data management system for downloading, processin
 
 #### 3.2.1 Data Configuration
 
-Datasets are defined in a YAML configuration file (typically `src/exp/configs/data_config.yaml`), which specifies dataset sources and processing parameters.
+Datasets are defined directly in your `.env` file using the following pattern:
+
+```bash
+# Dataset Configuration
+# Format: DATASET_[KEY]_NAME = the dataset name/path on Hugging Face
+DATASET_GUTENBERG_NAME="nbeerbower/gutenberg2-dpo"
+DATASET_EMOTION_NAME="dair-ai/emotion"
+```
+
+To add a new dataset, simply add a new environment variable following this naming convention.
 
 #### 3.2.2 Unified Data Operations Command
 
@@ -204,45 +202,38 @@ The `data_ops.sh` script provides a single command interface for all data operat
 # Download datasets from GCS bucket to local storage
 ./src/data/data_ops.sh download-gcs --bucket-name your-bucket-name
 
-# Test access to datasets in GCS bucket
-./src/data/data_ops.sh test --bucket-name your-bucket-name
+# List all files/datasets in the GCS bucket
+./src/data/data_ops.sh list --bucket-name your-bucket-name
+
+# Count files in GCS bucket datasets
+./src/data/data_ops.sh count --bucket-name your-bucket-name
 
 # Remove datasets from GCS bucket
 ./src/data/data_ops.sh clean --bucket-name your-bucket-name --datasets dataset1 dataset2
 ```
 
 All commands support the following options:
-- `--output-dir DIR`: Specify output directory (auto-detected by default)
+- `--output-dir DIR`: Specify output directory (defaults to `src/data/downloads`)
 - `--bucket-name NAME`: Specify GCS bucket name (from environment by default)
-- `--config-path PATH`: Specify path to config file
 - `--datasets LIST`: Specify dataset names to process
-- `--verbose`: Enable detailed output
 
-#### 3.2.3 Programmatic Data Access
+The script automatically:
+- Reads dataset configurations from your environment variables
+- Sets up authentication for Google Cloud Storage operations
+- Uses the appropriate paths for GCS operations (from BUCKET_DATRAIN in .env)
+- Provides appropriate error handling and status reporting
 
-The data package can also be used programmatically in Python code:
+#### 3.2.3 How It Works
 
-```python
-# Import config loading utilities
-from src.data.core import load_config, get_dataset_keys
+The integrated `data_ops.sh` script:
 
-# Import bucket operations
-from src.data.buckets import import_datasets, download_gcs, test_gcs_access
+1. **Downloads datasets** directly using Python's datasets library, using dataset names from environment variables
+2. **Uploads/downloads** data to/from Google Cloud Storage using the `gcloud storage cp` command with proper recursive handling
+3. **Lists** all content in the specified bucket with detailed information
+4. **Counts** files in bucket datasets to help track dataset size and verify transfers
+5. **Cleans** datasets from GCS buckets (with confirmation safeguards)
 
-# Import environment utilities
-from src.utils.data_utils import detect_environment
-
-# Load configuration
-config = load_config("path/to/config.yaml")
-dataset_keys = get_dataset_keys("path/to/config.yaml")
-
-# Get environment information
-env_info = detect_environment()
-output_dir = env_info['output_dir']
-
-# Download a dataset
-import_datasets(output_dir, "path/to/config.yaml")
-```
+All operations maintain consistent error handling, logging, and output directory management.
 
 ### 3.3 Mounting Files to TPU VM
 
