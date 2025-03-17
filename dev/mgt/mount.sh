@@ -38,24 +38,36 @@ fi
 source "$PROJECT_DIR/source/.env"
 check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 
-# --- Create remote directory ---
+# --- Check and prepare directories ---
 log_section "Preparing Mount Environment"
-log "Ensuring mount directory exists on TPU VM"
+log "Checking mount directory structure on TPU VM"
+# Check if mount directories exist, create only if needed
+vmssh "if [ ! -d /app/mount/src ] || [ ! -d /app/mount/data ] || [ ! -d /app/mount/models ] || [ ! -d /app/mount/logs ]; then 
+  sudo mkdir -p /app/mount/src /app/mount/data /app/mount/models /app/mount/logs
+  sudo chmod 777 -R /app/mount
+fi"
+# Create temporary directory for file transfers
 vmssh "mkdir -p /tmp/app/mount"
 
 # --- Mount operations ---
 if [[ "$MOUNT_ALL" == "true" ]]; then
   log_section "All Files Mount"
-  log "Mounting all files from $SRC_DIR"
+  log "Mounting all files from $SRC_DIR to /app/mount/src"
   
-  # Clear existing files and copy all source files
+  # Clear existing files
+  vmssh "sudo rm -rf /app/mount/src/*"
   vmssh "rm -rf /tmp/app/mount/*"
+  
+  # Copy all source files to temp directory first
   gcloud compute tpus tpu-vm scp --recurse "$SRC_DIR/"* "$TPU_NAME":"/tmp/app/mount/" \
       --zone="$TPU_ZONE" \
       --project="$PROJECT_ID" \
       --worker=all
+  
+  # Move files from temp to final destination
+  vmssh "sudo cp -r /tmp/app/mount/* /app/mount/src/ && rm -rf /tmp/app/mount/*"
       
-  log_success "All files mounted to /tmp/app/mount"
+  log_success "All files mounted to /app/mount/src"
 else
   # Mount specific files and directories
   if [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
@@ -71,13 +83,16 @@ else
           vmssh "mkdir -p /tmp/app/mount/$parent_dir"
         fi
         
-        # Copy file
+        # Copy file to temp directory
         gcloud compute tpus tpu-vm scp "$src_file" "$TPU_NAME":"/tmp/app/mount/$file" \
             --zone="$TPU_ZONE" \
             --project="$PROJECT_ID" \
             --worker=all
+        
+        # Create destination directory and move file
+        vmssh "sudo mkdir -p /app/mount/src/$parent_dir && sudo cp /tmp/app/mount/$file /app/mount/src/$file"
             
-        log "Mounted $file"
+        log "Mounted $file to /app/mount/src/$file"
       else
         log_warning "File $file not found in $SRC_DIR"
       fi
@@ -92,14 +107,19 @@ else
     for dir in "${DIRECTORIES[@]}"; do
       src_dir="$SRC_DIR/$dir"
       if [ -d "$src_dir" ]; then
+        # Create temp directory
         vmssh "mkdir -p /tmp/app/mount/$dir"
         
+        # Copy directory contents to temp
         gcloud compute tpus tpu-vm scp --recurse "$src_dir/"* "$TPU_NAME":"/tmp/app/mount/$dir/" \
             --zone="$TPU_ZONE" \
             --project="$PROJECT_ID" \
             --worker=all
+        
+        # Create destination directory and move files
+        vmssh "sudo mkdir -p /app/mount/src/$dir && sudo cp -r /tmp/app/mount/$dir/* /app/mount/src/$dir/"
             
-        log_success "Mounted directory $dir"
+        log_success "Mounted directory $dir to /app/mount/src/$dir"
       else
         log_warning "Directory $dir not found in $SRC_DIR"
       fi
@@ -115,21 +135,28 @@ else
       rel_path=${py_file#"$SRC_DIR/"}
       parent_dir=$(dirname "$rel_path")
       
+      # Create temp and destination directories
       vmssh "mkdir -p /tmp/app/mount/$parent_dir"
+      vmssh "sudo mkdir -p /app/mount/src/$parent_dir"
       
+      # Copy to temp and move to destination
       gcloud compute tpus tpu-vm scp "$py_file" "$TPU_NAME":"/tmp/app/mount/$rel_path" \
           --zone="$TPU_ZONE" \
           --project="$PROJECT_ID" \
           --worker=all
+      
+      vmssh "sudo cp /tmp/app/mount/$rel_path /app/mount/src/$rel_path"
     done
     
-    log_success "All Python files mounted"
+    log_success "All Python files mounted to /app/mount/src"
   fi
 fi
 
-# --- Update file listing ---
-log_section "Finalizing Mount"
-vmssh "find /tmp/app/mount -type f > /tmp/app/mount_files.txt" || true
+# Clean up temp directory
+vmssh "sudo rm -rf /tmp/app/mount/*"
+
+# Ensure correct permissions
+vmssh "sudo chmod -R 777 /app/mount"
 
 log_success "Files mounted successfully at /app/mount in the container"
 exit 0

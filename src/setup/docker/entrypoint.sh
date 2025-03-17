@@ -1,8 +1,15 @@
 #!/bin/bash
 set -e
 
+# Ensure all required directories exist (in case they weren't created in the Dockerfile)
+echo "Verifying directory structure..."
+mkdir -p /app/mount/src /app/mount/data /app/mount/models /app/mount/logs /app/tensorboard /app/keys
+
+# Log directory setup - will be used for external log collection
+echo "Setting up logging directory at /app/logs..."
+chmod -R 755 /app/mount/logs
+
 # Start TensorBoard in the background
-mkdir -p /app/tensorboard
 tensorboard --logdir=/app/tensorboard --host=0.0.0.0 --port=6006 &
 TB_PID=$!
 

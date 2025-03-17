@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   tpu-service:
     build:
@@ -19,13 +17,16 @@ services:
       - /dev:/dev
       - /lib/libtpu.so:/lib/libtpu.so
       # Authentication
-      - ../../source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
-      # Application volumes
-      - ../../../mount:/app/mount
-      - ../../../data:/app/data
-      - ../../../models:/app/models
-      - ../../../logs:/app/logs
+      - ${PWD}/source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
+      # Application volume - single mount point with organized subdirectories
+      - ${PWD}/mount:/app/mount
     ports:
       - "5000:5000"
       - "6006:6006"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s

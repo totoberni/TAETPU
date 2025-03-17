@@ -36,12 +36,25 @@ This repository contains a framework for conducting Transformer model ablation e
 │   │       ├── docker-compose.yml # Docker Compose configuration
 │   │       ├── entrypoint.sh     # Container entry point script
 │   │       └── requirements.txt  # Python dependencies
+│   ├── data/                     # Data processing and management
+│   │   ├── core/                 # Core data functionality
+│   │   │   ├── config_loader.py  # Configuration loading utilities
+│   │   │   └── __init__.py       # Package exports
+│   │   ├── buckets/              # GCS bucket operations
+│   │   │   ├── import_data.py    # Download datasets from HuggingFace
+│   │   │   ├── down_bucket.py    # Download from GCS buckets
+│   │   │   ├── test_bucket.py    # Test GCS bucket access
+│   │   │   └── __init__.py       # Package exports
+│   │   ├── outputs/              # Local dataset storage
+│   │   ├── data_ops.sh           # Unified data operations script
+│   │   └── __init__.py           # Package exports
 │   ├── teardown/                 # Scripts for resource cleanup
 │   │   ├── teardown_bucket.sh    # Script to delete GCS bucket
 │   │   ├── teardown_image.sh     # Script to clean up Docker images
 │   │   └── teardown_tpu.sh       # Script to delete TPU VM
 │   └── utils/                    # Shared utilities
-│       └── common.sh             # Common bash utilities and functions
+│       ├── common.sh             # Common bash utilities and functions
+│       └── data_utils.py         # Data-related utilities
 └── source/                       # Configuration and credential files
     ├── .env                      # Environment variables and configuration
     └── service-account.json      # Service account key (not included in repo)
@@ -63,6 +76,7 @@ Make all scripts executable:
 chmod +x src/setup/scripts/*.sh
 chmod +x src/teardown/*.sh
 chmod +x dev/mgt/*.sh
+chmod +x src/data/data_ops.sh
 ```
 
 ## 1. Configuration
@@ -152,7 +166,85 @@ Verify that your TPU environment is correctly set up:
 
 The project implements a streamlined CI/CD workflow for rapid iteration without rebuilding Docker images for every code change.
 
-### 3.1 Mounting Files to TPU VM
+### 3.1 Directory Structure
+
+The setup process (`setup_tpu.sh`) automatically creates the following directory structure in your project root:
+
+```
+mount/
+├── src/     # Source code files (mounted to the container)
+├── models/  # Model files (persisted between runs)
+└── logs/    # Log files (persisted between runs)
+```
+
+Source code is mounted to the Docker container, while data files remain on your local machine. This separation keeps the Docker image lightweight and ensures data processing can happen locally.
+
+### 3.2 Data Operations
+
+The project provides a unified data management system for downloading, processing, and managing datasets between your local machine and Google Cloud Storage. The main interface is the `data_ops.sh` script located in `src/data/`.
+
+#### 3.2.1 Data Configuration
+
+Datasets are defined in a YAML configuration file (typically `src/exp/configs/data_config.yaml`), which specifies dataset sources and processing parameters.
+
+#### 3.2.2 Unified Data Operations Command
+
+The `data_ops.sh` script provides a single command interface for all data operations:
+
+```bash
+# Show help and available commands
+./src/data/data_ops.sh --help
+
+# Download datasets from Hugging Face to local storage
+./src/data/data_ops.sh download-local
+
+# Upload datasets to Google Cloud Storage bucket
+./src/data/data_ops.sh upload --bucket-name your-bucket-name
+
+# Download datasets from GCS bucket to local storage
+./src/data/data_ops.sh download-gcs --bucket-name your-bucket-name
+
+# Test access to datasets in GCS bucket
+./src/data/data_ops.sh test --bucket-name your-bucket-name
+
+# Remove datasets from GCS bucket
+./src/data/data_ops.sh clean --bucket-name your-bucket-name --datasets dataset1 dataset2
+```
+
+All commands support the following options:
+- `--output-dir DIR`: Specify output directory (auto-detected by default)
+- `--bucket-name NAME`: Specify GCS bucket name (from environment by default)
+- `--config-path PATH`: Specify path to config file
+- `--datasets LIST`: Specify dataset names to process
+- `--verbose`: Enable detailed output
+
+#### 3.2.3 Programmatic Data Access
+
+The data package can also be used programmatically in Python code:
+
+```python
+# Import config loading utilities
+from src.data.core import load_config, get_dataset_keys
+
+# Import bucket operations
+from src.data.buckets import import_datasets, download_gcs, test_gcs_access
+
+# Import environment utilities
+from src.utils.data_utils import detect_environment
+
+# Load configuration
+config = load_config("path/to/config.yaml")
+dataset_keys = get_dataset_keys("path/to/config.yaml")
+
+# Get environment information
+env_info = detect_environment()
+output_dir = env_info['output_dir']
+
+# Download a dataset
+import_datasets(output_dir, "path/to/config.yaml")
+```
+
+### 3.3 Mounting Files to TPU VM
 
 The `mount.sh` script copies Python files from your local development environment to the TPU VM:
 
@@ -165,9 +257,14 @@ The `mount.sh` script copies Python files from your local development environmen
 
 # Mount all files in dev/src directory
 ./dev/mgt/mount.sh --all
+
+# Mount specific directories
+./dev/mgt/mount.sh --dir exp/data
 ```
 
-### 3.2 Running Files on TPU VM
+Files are mounted into the `/app/mount/src` directory on the TPU VM, which is directly mapped to the Docker container. The container creates symbolic links to provide easy access to these directories.
+
+### 3.4 Running Files on TPU VM
 
 The `run.sh` script executes mounted Python files inside the Docker container:
 
@@ -175,11 +272,14 @@ The `run.sh` script executes mounted Python files inside the Docker container:
 # Run a mounted file on the TPU VM
 ./dev/mgt/run.sh example_monitoring.py
 
+# Run a file in a subdirectory
+./dev/mgt/run.sh exp/data/buckets/load_bucket.py
+
 # Run with arguments
 ./dev/mgt/run.sh train.py --epochs 10 --batch_size 32
 ```
 
-### 3.3 Continuous Synchronization
+### 3.5 Continuous Synchronization
 
 The `synch.sh` script provides automated file synchronization with the TPU VM:
 
@@ -194,7 +294,7 @@ The `synch.sh` script provides automated file synchronization with the TPU VM:
 ./dev/mgt/synch.sh --restart
 ```
 
-### 3.4 Removing Files from TPU VM
+### 3.6 Removing Files from TPU VM
 
 The `scrap.sh` script cleans up files from the TPU VM:
 

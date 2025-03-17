@@ -13,7 +13,7 @@ ENV_FILE="$PROJECT_DIR/source/.env"
 load_env_vars "$ENV_FILE"
 
 # Essential environment validation only
-check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "RUNTIME_VERSION" "SERVICE_ACCOUNT_EMAIL" || exit 1
+check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "RUNTIME_VERSION" "SERVICE_ACCOUNT_EMAIL" "BUCKET_NAME" || exit 1
 
 # Define image name
 TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
@@ -25,20 +25,20 @@ log "Project: $PROJECT_ID"
 log "TPU Name: $TPU_NAME"
 log "TPU Type: $TPU_TYPE"
 log "Zone: $TPU_ZONE"
+log "Bucket: $BUCKET_NAME"
 log "Image: $TPU_IMAGE_NAME"
 log "Service Account: $SERVICE_ACCOUNT_EMAIL"
 
 # Set up authentication
-log "Setting up authentication..."
+log_section "Setting up authentication"
 setup_auth
 
 # Set project and zone
 gcloud config set project $PROJECT_ID
 gcloud config set compute/zone $TPU_ZONE
 
-#################################################
-# STEP 1: Create TPU VM if it doesn't exist
-#################################################
+
+# Create TPU VM if it doesn't exist
 log_section "TPU VM Provisioning"
 log "Checking for TPU VM..."
 if ! gcloud compute tpus tpu-vm list --filter="name:$TPU_NAME" --format="value(name)" | grep -q "$TPU_NAME"; then
@@ -58,9 +58,8 @@ else
     log "TPU VM '$TPU_NAME' already exists"
 fi
 
-#################################################
-# STEP 2: Pull image and set up container
-#################################################
+
+# Pull image and set up container
 log_section "Container Setup"
 
 # Create a simplified setup script for the TPU VM
@@ -78,9 +77,6 @@ echo "\$TOKEN" | sudo docker login -u oauth2accesstoken --password-stdin https:/
 # Pull the Docker image
 sudo docker pull $TPU_IMAGE_NAME
 
-# Create directories
-mkdir -p ~/mount ~/data ~/models ~/logs
-
 # Clean up any existing container
 sudo docker rm -f $CONTAINER_NAME 2>/dev/null || true
 
@@ -91,21 +87,18 @@ sudo docker run -d --name $CONTAINER_NAME \
     -p 5000:5000 -p 6006:6006 \
     -v /dev:/dev \
     -v /lib/libtpu.so:/lib/libtpu.so \
-    -v ~/mount:/app/mount \
-    -v ~/data:/app/data \
-    -v ~/models:/app/models \
-    -v ~/logs:/app/logs \
+    -v /app/mount:/app/mount \
     -e PJRT_DEVICE=TPU \
-    -e PROJECT_ID='$PROJECT_ID' \
-    -e BUCKET_NAME='$BUCKET_NAME' \
+    -e PROJECT_ID='${PROJECT_ID}' \
+    -e BUCKET_NAME='${BUCKET_NAME}' \
     $TPU_IMAGE_NAME
 EOF
 
 # Copy and execute the setup script
 log "Setting up TPU VM environment..."
 gcloud compute tpus tpu-vm scp "$TPU_SETUP_SCRIPT" "$TPU_NAME:/tmp/tpu_setup.sh" --zone="$TPU_ZONE"
-gcloud compute tpus tpu-vm ssh "$TPU_NAME" --zone="$TPU_ZONE" --command="chmod +x /tmp/tpu_setup.sh && /tmp/tpu_setup.sh"
-rm "$TPU_SETUP_SCRIPT"
+vmssh "chmod +x /tmp/tpu_setup.sh && /tmp/tpu_setup.sh"
+vmssh "rm -f '/tmp/tpu_setup.sh'"
 
 # Display connection information
 log_section "Setup Complete"

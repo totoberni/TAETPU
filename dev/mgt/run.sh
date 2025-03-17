@@ -16,6 +16,12 @@ if [ $# -eq 0 ] || [[ "$1" != *.py ]]; then
 fi
 
 PYTHON_FILE=$(basename "$1")
+PYTHON_DIR=$(dirname "$1")
+if [ "$PYTHON_DIR" = "." ]; then
+  PYTHON_PATH="$PYTHON_FILE"
+else
+  PYTHON_PATH="$PYTHON_DIR/$PYTHON_FILE"
+fi
 shift
 SCRIPT_ARGS=("$@")
 
@@ -28,13 +34,13 @@ DOCKER_IMAGE="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
 
 # --- Verify file exists ---
 log_section "File Verification"
-log "Verifying $PYTHON_FILE exists on TPU VM"
+log "Verifying $PYTHON_PATH exists on TPU VM"
 
 # Direct verification using exit code rather than output capture
-vmssh "test -f /tmp/app/mount/$PYTHON_FILE"
+vmssh "test -f /app/mount/src/$PYTHON_PATH"
 
 if [ $? -ne 0 ]; then
-  log_error "File $PYTHON_FILE not found on TPU VM. Please mount it first."
+  log_error "File $PYTHON_PATH not found on TPU VM. Please mount it first."
   exit 1
 fi
 
@@ -42,16 +48,16 @@ log_success "File verified successfully"
 
 # --- Run the container ---
 log_section "Running Script"
-log "Running $PYTHON_FILE on TPU VM"
+log "Running $PYTHON_PATH on TPU VM"
 
 # Note: We use the environment variables already defined in the container
 DOCKER_CMD="docker run --rm --privileged \
   --device=/dev/accel0 \
-  -v /tmp/app/mount:/app/mount \
+  -v /app/mount:/app/mount \
   -v /lib/libtpu.so:/lib/libtpu.so \
   -w /app \
   $DOCKER_IMAGE \
-  python /app/mount/$PYTHON_FILE"
+  python /app/src/$PYTHON_PATH"
 
 # Add script arguments
 for arg in "${SCRIPT_ARGS[@]}"; do

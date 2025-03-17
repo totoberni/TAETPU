@@ -1,0 +1,141 @@
+ tokenizers:
+  transformer:
+    type: "wordpiece"
+    pretrained_model_name_or_path: "bert-base-cased"
+    vocab_size: 30522
+    special_tokens:
+      pad: "[PAD]"
+      unk: "[UNK]"
+      cls: "[CLS]"
+      sep: "[SEP]"
+      mask: "[MASK]"
+  static:
+    type: "sentencepiece"
+    model: "spm_model"
+    vocab_size: 20000
+    character_coverage: 0.9995
+    model_type: "unigram"
+    special_tokens:
+      pad: "<pad>"
+      unk: "<unk>"
+      cls: "<cls>"
+      sep: "<sep>"
+      mask: "<mask>"
+
+tasks:
+  mlm:
+    type: "masking"
+    defaults:
+      mask_probability: 0.15
+      whole_word_mask: true
+      min_tokens: 1
+      max_tokens: 20
+  
+  lmlm:
+    type: "large_masking"
+    defaults:
+      mask_probability: 0.15
+      min_masks: 1
+      max_masks: 5
+      min_span: 2
+      max_span: 5
+
+  nsp:
+    type: "next_sentence"
+    model: "bert-base-cased"
+    negative_sampling_ratio: 0.5
+
+  sentiment:
+    type: "transformer"
+    model: "distilbert-base-cased-finetuned-sst-2-english"
+    checkpoint: "dair-ai/emotion"
+
+  ner:
+    type: "spacy"
+    model: "en_core_web_lg"
+    align_with_tokens: true
+    batch_size: 32
+
+  pos:
+    type: "spacy"
+    model: "en_core_web_lg"
+    align_with_tokens: true
+    batch_size: 32
+
+  discourse:
+    type: "transformer"
+    model: "bert-base-cased"
+    checkpoint: "discourse-markers-en"
+    markers: ["However", "Therefore", "Moreover", "Nevertheless", "Consequently", "If and only if", "In addition", 
+               "On the other hand", "In contrast", "In summary", "In conclusion", "On the other hand", "In contrast", 
+               "In summary", "In conclusion", "But", "As", "Further, ", "However, ", "Nevertheless, ", "Serendipitously, "]
+
+  contrastive:
+    type: "sklearn"
+    model: "silhouette"
+    clustering_method: "kmeans"
+    min_clusters: 3
+    max_clusters: 8
+    validation_metrics: ["silhouette", "calinski_harabasz"]
+    defaults:
+      validation: ["silhouette", "task_clusters"]
+      min_silhouette_score: 0.5
+
+datasets:
+  gutenberg:
+    name: "nbeerbower/gutenberg2-dpo"
+    text_column: "chosen"
+    label_column: null
+    enabled_tasks:
+      - mlm
+      - lmlm
+      - nsp
+      - ner
+      - pos
+      - discourse
+      - contrastive
+    task_overrides:
+      mlm:
+        max_tokens: 20
+      lmlm:
+        max_span: 5
+      contrastive:
+        tasks_for_clustering: ["ner", "pos", "discourse"]
+    splits:
+      validation: 0.10
+      test: 0.10
+    max_length: 128
+    preprocessing:
+      remove_html: true
+      normalize_unicode: true
+      handle_numbers: true
+
+  emotion:
+    name: "dair-ai/emotion"
+    text_column: "text"
+    label_column: "label"
+    enabled_tasks:
+      - mlm
+      - lmlm
+      - sentiment
+      - ner
+      - pos
+      - discourse
+      - contrastive
+    task_overrides:
+      mlm:
+        max_tokens: 10
+      lmlm:
+        max_span: 4
+      sentiment:
+        preserve_original_labels: true
+      contrastive:
+        tasks_for_clustering: ["sentiment", "ner", "pos", "discourse"]
+    splits:
+      validation: 0.20
+      test: 0.10
+    max_length: 64
+    preprocessing:
+      remove_html: true
+      normalize_unicode: true
+      handle_numbers: true

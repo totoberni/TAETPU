@@ -1,8 +1,10 @@
 # Core libraries
 numpy>=1.24.0
+pyyaml~=6.0
 
 # Transformers and ML libraries
 scikit-learn>=1.2.0
+datasets>=2.14.0
 
 # TPU monitoring
 tensorboard==2.18.0

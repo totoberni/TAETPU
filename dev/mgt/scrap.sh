@@ -37,10 +37,10 @@ check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 # --- Perform actions based on arguments ---
 # For removing all files
 if [ "$REMOVE_ALL" = true ]; then
-  if confirm_delete "ALL files in the TPU VM mount directory"; then
-    log "Removing all files from TPU VM"
-    vmssh "rm -rf /tmp/app/mount/*"
-    log_success "All files removed"
+  if confirm_delete "ALL files in the TPU VM mount/src directory"; then
+    log "Removing all files from TPU VM src directory"
+    vmssh "rm -rf /app/mount/src/*"
+    log_success "All source files removed"
   else
     log "Operation cancelled by user"
     exit 0
@@ -58,7 +58,7 @@ if [ ${#DIRECTORIES[@]} -gt 0 ]; then
   if confirm_delete "these directories"; then
     for dir in "${DIRECTORIES[@]}"; do
       log "Processing directory: $dir"
-      vmssh "rm -rf /tmp/app/mount/$dir"
+      vmssh "rm -rf /app/mount/src/$dir"
       log_success "Directory processed: $dir"
     done
   else
@@ -77,7 +77,7 @@ if [ ${#FILES[@]} -gt 0 ]; then
   if confirm_delete "these files"; then
     for file in "${FILES[@]}"; do
       log "Processing file: $file"
-      vmssh "rm -f /tmp/app/mount/$file"
+      vmssh "rm -f /app/mount/src/$file"
       log_success "File processed: $file"
     done
   else
@@ -99,8 +99,8 @@ fi
 
 # --- List remaining files ---
 log_section "Remaining Files"
-log "Listing remaining files in tmp/app/mount directory..."
-vmssh "find /tmp/app/mount -type f | sort"
+log "Listing remaining files in app/mount/src directory..."
+vmssh "find /app/mount/src -type f | sort"
 
 log_success "Cleanup complete"
 exit 0

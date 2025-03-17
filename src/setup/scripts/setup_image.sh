@@ -16,7 +16,7 @@ ENV_FILE="$PROJECT_DIR/source/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-check_env_vars "PROJECT_ID" || exit 1
+check_env_vars "PROJECT_ID" "BUCKET_NAME" "SERVICE_ACCOUNT_JSON" || exit 1
 
 # Set Docker directories
 DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
@@ -38,6 +38,12 @@ setup_auth
 log "Configuring Docker for GCR..."
 gcloud auth configure-docker eu.gcr.io --quiet
 
+# Clean up existing container/image if it exists
+log "Cleaning up existing container/image..."
+CONTAINER_NAME="tae-tpu-container"
+docker rm -f $CONTAINER_NAME 2>/dev/null || true
+docker rmi $TPU_IMAGE_NAME 2>/dev/null || true
+
 # Build and push Docker image
 log "Building and pushing Docker image..."
 
@@ -46,7 +52,6 @@ pushd "$PROJECT_DIR" > /dev/null
 
 # Export required environment variables for docker-compose
 export PROJECT_ID
-export BUCKET_NAME
 export SERVICE_ACCOUNT_JSON
 
 # Build using docker-compose

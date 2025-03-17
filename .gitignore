@@ -12,11 +12,12 @@
 .env.*
 *.env
 
-# Other potentially sensitive files
-credentials/
-secrets/
-keys/
+#venv
+.venv/
+venv/
 
+# Other potentially sensitive files
+source/
 # From existing file
 infra-tempo-401122-*.json
 
