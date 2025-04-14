@@ -229,14 +229,8 @@ elif [[ "$COMMAND" == "upload" ]]; then
             continue
         fi
         
-        # Create the target directory first (necessary in some cases)
-        gcloud storage ls "$gcs_dataset_path" &>/dev/null || \
-            gcloud storage cp /dev/null "$gcs_dataset_path/.placeholder" && \
-            gcloud storage rm "$gcs_dataset_path/.placeholder" &>/dev/null
-        
         log "Uploading $dataset_key dataset to $gcs_dataset_path..."
-        # Use recursive flag properly with directory path
-        gcloud storage cp -r "$local_dataset_path/" "$gcs_dataset_path/"
+        gcloud storage cp -r "$local_dataset_path/" "$gcs_dataset_path/" # Use recursive flag properly with directory path
         
         [[ $? -eq 0 ]] && log_success "Successfully uploaded $dataset_key dataset" || \
             log_error "Failed to upload $dataset_key dataset"

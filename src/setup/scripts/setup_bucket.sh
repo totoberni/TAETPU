@@ -16,10 +16,10 @@ log "Loading environment variables..."
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-check_env_vars "PROJECT_ID" "BUCKET_NAME" || exit 1
+check_env_vars "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION" || exit 1
 
 # Display configuration
-display_config "PROJECT_ID" "BUCKET_NAME"
+display_config "PROJECT_ID" "BUCKET_NAME" "BUCKET_REGION"
 
 # Set up authentication locally
 setup_auth
@@ -31,7 +31,7 @@ if gsutil ls -b "gs://$BUCKET_NAME" &> /dev/null; then
 else
     # Create the bucket with appropriate parameters
     log "Creating bucket 'gs://$BUCKET_NAME'..."
-    gsutil mb -p "$PROJECT_ID" -l "us-central1" "gs://$BUCKET_NAME"
+    gsutil mb -p "$PROJECT_ID" -l "$BUCKET_REGION" "gs://$BUCKET_NAME"
     
     # Set default ACLs
     log "Setting default ACLs..."
