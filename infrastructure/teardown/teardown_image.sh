@@ -5,21 +5,21 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common.sh"
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
 
 # --- MAIN SCRIPT ---
 init_script 'Docker Image Teardown'
 
 # Load environment variables
 log "Loading environment variables..."
-ENV_FILE="$PROJECT_DIR/source/.env"
+ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
 check_env_vars "PROJECT_ID" || exit 1
 
-# Get docker-compose path and parse image info
-DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
+# Set up Docker directory path
+DOCKER_DIR="$PROJECT_DIR/infrastructure/docker"
 DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
 # Extract image details from docker-compose.yml if available

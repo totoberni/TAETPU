@@ -1,8 +1,9 @@
+version: '3'
 services:
-  tpu-service:
+  tpu_container:
     build:
-      context: ../../..  # Points to project root
-      dockerfile: src/setup/docker/Dockerfile
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
     image: eu.gcr.io/${PROJECT_ID}/tae-tpu:v1
     container_name: tae-tpu-container
     privileged: true
@@ -17,7 +18,7 @@ services:
       - /dev:/dev
       - /lib/libtpu.so:/lib/libtpu.so
       # Authentication
-      - ${PWD}/source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
+      - ${PWD}/config/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
       # Application volume - single mount point with organized subdirectories
       - ${PWD}/mount:/app/mount
     ports:

@@ -3,10 +3,10 @@
 # --- Basic setup ---
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common.sh"
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
 
 # --- Parse arguments ---
 if [ $# -eq 0 ] || [[ "$1" != *.py ]]; then
@@ -26,7 +26,7 @@ shift
 SCRIPT_ARGS=("$@")
 
 # --- Load environment variables ---
-source "$PROJECT_DIR/source/.env"
+source "$PROJECT_DIR/config/.env"
 check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 
 # --- Define Docker image path ---

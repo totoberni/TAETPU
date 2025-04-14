@@ -89,25 +89,25 @@ function init_script() {
   # Set paths if not already defined by the calling script
   if [[ -z "$SCRIPT_DIR" || -z "$PROJECT_DIR" ]]; then
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[1]}" )" &> /dev/null && pwd )"
-    PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
   fi
   
   # Ensure PROJECT_DIR is correctly set
-  if [[ ! -d "$PROJECT_DIR/src" ]]; then
+  if [[ ! -d "$PROJECT_DIR/infrastructure/setup" || ! -d "$PROJECT_DIR/infrastructure/utils" ]]; then
     log_warning "Project directory structure doesn't look right: $PROJECT_DIR"
     log_warning "Attempting to find the correct project root..."
     
-    # Try to find the project root by looking for the src directory
+    # Try to find the project root by looking for setup and utils directories
     local current_dir=$(pwd)
-    while [[ ! -d "$current_dir/src" && "$current_dir" != "/" ]]; do
+    while [[ ! -d "$current_dir/infrastructure/setup" || ! -d "$current_dir/infrastructure/utils" ]] && [[ "$current_dir" != "/" ]]; do
       current_dir=$(dirname "$current_dir")
     done
     
-    if [[ -d "$current_dir/src" ]]; then
+    if [[ -d "$current_dir/infrastructure/setup" && -d "$current_dir/infrastructure/utils" ]]; then
       PROJECT_DIR="$current_dir"
       log_success "Found project root directory: $PROJECT_DIR"
     else
-      log_error "Failed to find the project root directory containing 'src'"
+      log_error "Failed to find the project root directory containing required directories"
       exit 1
     fi
   fi
@@ -120,7 +120,7 @@ function init_script() {
 # --- ENVIRONMENT MANAGEMENT ---
 # Load environment variables from .env file
 function load_env_vars() {
-  local env_file="${1:-$PROJECT_DIR/source/.env}"
+  local env_file="${1:-$PROJECT_DIR/config/.env}"
   
   log 'Loading environment variables...'
   if [[ -f "$env_file" ]]; then
@@ -178,9 +178,9 @@ function display_config() {
 }
 
 function setup_auth() {
-  if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]]; then
+  if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/config/$SERVICE_ACCOUNT_JSON" ]]; then
     log "Setting up service account authentication..."
-    export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
+    export GOOGLE_APPLICATION_CREDENTIALS="$PROJECT_DIR/config/$SERVICE_ACCOUNT_JSON"
     gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
     log_success "Service account authentication successful"
     return 0

@@ -2,14 +2,14 @@
 
 # --- Get script directory for absolute path references ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common.sh"
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
 
 # --- MAIN SCRIPT ---
 init_script "TPU zone availability check"
-ENV_FILE="$PROJECT_DIR/source/.env"
+ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables

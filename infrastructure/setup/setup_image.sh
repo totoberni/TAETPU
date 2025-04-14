@@ -2,24 +2,24 @@
 
 # Get script directory for absolute path references
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Import common functions
-source "$PROJECT_DIR/src/utils/common.sh"
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
 
 # Initialize
 init_script 'Docker Image Setup'
 
 # Load environment variables
 log "Loading environment variables..."
-ENV_FILE="$PROJECT_DIR/source/.env"
+ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
 check_env_vars "PROJECT_ID" "BUCKET_NAME" "SERVICE_ACCOUNT_JSON" || exit 1
 
 # Set Docker directories
-DOCKER_DIR="$PROJECT_DIR/src/setup/docker"
+DOCKER_DIR="$PROJECT_DIR/infrastructure/docker"
 DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
 # Set image name

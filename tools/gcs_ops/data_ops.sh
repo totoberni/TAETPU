@@ -1,13 +1,12 @@
 #!/bin/bash
 
-# --- Basic setup ---
-SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+# --- Get script directory for absolute path references ---
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# --- Import common files ---
-source "$PROJECT_DIR/src/utils/common.sh"
-load_env_vars "$PROJECT_DIR/source/.env"
+# --- Import common functions ---
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
+load_env_vars "$PROJECT_DIR/config/.env"
 
 # --- Default values ---
 OUTPUT_DIR="downloads"  # Use a simple relative path

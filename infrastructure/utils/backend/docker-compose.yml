@@ -16,6 +16,6 @@ services:
       - TPU_ZONE=${TPU_ZONE}
       - GOOGLE_APPLICATION_CREDENTIALS=/app/keys/service-account.json
     volumes:
-      - ../../source/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
+      - ../../../config/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
       - ./logs:/app/logs
     restart: unless-stopped

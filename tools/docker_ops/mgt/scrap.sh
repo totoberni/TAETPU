@@ -3,10 +3,10 @@
 # --- Basic setup ---
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # --- Import common functions ---
-source "$PROJECT_DIR/src/utils/common.sh"
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
 
 # --- Parse arguments ---
 REMOVE_ALL=false
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Load environment variables ---
-source "$PROJECT_DIR/source/.env"
+source "$PROJECT_DIR/config/.env"
 check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 
 # --- Perform actions based on arguments ---

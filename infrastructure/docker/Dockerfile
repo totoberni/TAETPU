@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies with PyTorch/XLA for TPU support
-COPY src/setup/docker/requirements.txt /app/
+COPY infrastructure/docker/requirements.txt /app/
 
 # Install PyTorch and PyTorch/XLA with TPU support in a separate layer
 RUN pip install --upgrade pip && \
@@ -52,11 +52,11 @@ RUN ln -sf /app/mount/src /app/src && \
     ln -sf /app/mount/logs /app/logs && \
     ln -sf /app/mount/data /app/data
 
-# Copy only utility files (not data)
-COPY src/utils/ /app/utils/
+# Copy utilities
+COPY infrastructure/utils/ /app/utils/
 
-# Copy and set entrypoint
-COPY src/setup/docker/entrypoint.sh /app/entrypoint.sh
+# Copy entrypoint script
+COPY infrastructure/docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Health check

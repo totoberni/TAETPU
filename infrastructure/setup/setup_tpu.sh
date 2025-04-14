@@ -2,14 +2,14 @@
 
 # Get script directory and project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Import common functions
-source "$PROJECT_DIR/src/utils/common.sh"
+source "$PROJECT_DIR/infrastructure/utils/common.sh"
 init_script 'TPU VM Setup'
 
 # Load environment variables
-ENV_FILE="$PROJECT_DIR/source/.env"
+ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Essential environment validation only

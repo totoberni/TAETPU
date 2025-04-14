@@ -5,8 +5,8 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../../" && pwd)"
 
-# Load environment variables from source
-source "$PROJECT_DIR/source/.env"
+# Load environment variables from config
+source "$PROJECT_DIR/config/.env"
 
 # Echo with timestamp
 log() {
@@ -24,8 +24,8 @@ done
 
 # Authenticate with Google Cloud
 log "Authenticating with Google Cloud..."
-if [ -f "$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON" ]; then
-  gcloud auth activate-service-account --key-file="$PROJECT_DIR/source/$SERVICE_ACCOUNT_JSON"
+if [ -f "$PROJECT_DIR/config/$SERVICE_ACCOUNT_JSON" ]; then
+  gcloud auth activate-service-account --key-file="$PROJECT_DIR/config/$SERVICE_ACCOUNT_JSON"
 else
   log "ERROR: Service account JSON file not found: $SERVICE_ACCOUNT_JSON"
   exit 1

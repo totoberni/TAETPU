@@ -13,11 +13,11 @@
 *.env
 
 #venv
-.venv/
-venv/
+*.venv/
+*venv/
 
 # Other potentially sensitive files
-source/
+config/
 # From existing file
 infra-tempo-401122-*.json
 
