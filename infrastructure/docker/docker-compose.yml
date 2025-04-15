@@ -17,16 +17,13 @@ services:
       # System volumes - essential for TPU access
       - /dev:/dev
       - /lib/libtpu.so:/lib/libtpu.so
-      # Authentication
-      - ${PWD}/config/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro
-      # Application volume - single mount point with organized subdirectories
-      - ${PWD}/mount:/app/mount
-    ports:
-      - "5000:5000"
-      - "6006:6006"
+      # Authentication - create keys directory at runtime
+      - ${PWD}/config/${SERVICE_ACCOUNT_JSON}:/app/service-account.json:ro
+      # Application volume - only mount the src directory
+      - ${PWD}/src:/app/mount/src
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount') else 1)"]
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount/src') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

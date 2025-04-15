@@ -12,8 +12,7 @@ services:
     environment:
       - PROJECT_ID=${PROJECT_ID}
       - BUCKET_NAME=${BUCKET_NAME}
-      - TPU_NAME=${TPU_NAME}
-      - TPU_ZONE=${TPU_ZONE}
+      - BUCKET_TENSORBOARD=${BUCKET_TENSORBOARD}
       - GOOGLE_APPLICATION_CREDENTIALS=/app/keys/service-account.json
     volumes:
       - ../../../config/${SERVICE_ACCOUNT_JSON}:/app/keys/service-account.json:ro

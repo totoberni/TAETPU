@@ -30,6 +30,7 @@ log_success "Image reference: $TPU_IMAGE_NAME"
 log_section "Configuration"
 log "Project ID: $PROJECT_ID"
 log "Image name: $TPU_IMAGE_NAME"
+log "This image is designed for TPU computation with FUSE bucket mounting"
 
 # Set up authentication
 setup_auth
@@ -80,4 +81,5 @@ popd > /dev/null
 
 log_success "Docker image build and push completed successfully"
 log_success "Image available at: $TPU_IMAGE_NAME"
+log_success "Note: This image uses FUSE for direct bucket access instead of networking"
 exit 0

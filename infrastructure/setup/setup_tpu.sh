@@ -74,11 +74,11 @@ gcloud auth configure-docker eu.gcr.io --quiet
 TOKEN=\$(gcloud auth print-access-token)
 echo "\$TOKEN" | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io
 
-# Pull the Docker image
-sudo docker pull $TPU_IMAGE_NAME
-
 # Clean up any existing container
 sudo docker rm -f $CONTAINER_NAME 2>/dev/null || true
+
+# Pull the Docker image
+sudo docker pull $TPU_IMAGE_NAME
 
 # Run the container
 sudo docker run -d --name $CONTAINER_NAME \
@@ -96,7 +96,7 @@ EOF
 
 # Copy and execute the setup script
 log "Setting up TPU VM environment..."
-gcloud compute tpus tpu-vm scp "$TPU_SETUP_SCRIPT" "$TPU_NAME:/tmp/tpu_setup.sh" --zone="$TPU_ZONE"
+gcloud compute tpus tpu-vm scp "$TPU_SETUP_SCRIPT" "$TPU_NAME:/tmp/tpu_setup.sh" --zone="$TPU_ZONE" --force-key-file-overwrite
 vmssh "chmod +x /tmp/tpu_setup.sh && /tmp/tpu_setup.sh"
 vmssh "rm -f '/tmp/tpu_setup.sh'"
 

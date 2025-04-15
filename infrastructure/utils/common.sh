@@ -218,6 +218,7 @@ vmssh() {
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
     --worker="$worker" \
+    --force-key-file-overwrite \
     --command="$cmd"
   
   local exit_code=$?
@@ -243,6 +244,7 @@ vmssh_out() {
     --zone="$TPU_ZONE" \
     --project="$PROJECT_ID" \
     --worker="$worker" \
+    --force-key-file-overwrite \
     --command="$cmd" \
     --output-directory="$output_dir" \
   

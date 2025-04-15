@@ -42,8 +42,8 @@ check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
 log_section "Preparing Mount Environment"
 log "Checking mount directory structure on TPU VM"
 # Check if mount directories exist, create only if needed
-vmssh "if [ ! -d /app/mount/src ] || [ ! -d /app/mount/data ] || [ ! -d /app/mount/models ] || [ ! -d /app/mount/logs ]; then 
-  sudo mkdir -p /app/mount/src /app/mount/data /app/mount/models /app/mount/logs
+vmssh "if [ ! -d /app/mount/src ]; then 
+  sudo mkdir -p /app/mount/src
   sudo chmod 777 -R /app/mount
 fi"
 # Create temporary directory for file transfers
@@ -156,7 +156,7 @@ fi
 vmssh "sudo rm -rf /tmp/app/mount/*"
 
 # Ensure correct permissions
-vmssh "sudo chmod -R 777 /app/mount"
+vmssh "sudo chmod -R 777 /app/mount/src"
 
-log_success "Files mounted successfully at /app/mount in the container"
+log_success "Files mounted successfully at /app/mount/src in the container"
 exit 0

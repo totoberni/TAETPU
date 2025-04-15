@@ -53,11 +53,11 @@ log "Running $PYTHON_PATH on TPU VM"
 # Note: We use the environment variables already defined in the container
 DOCKER_CMD="docker run --rm --privileged \
   --device=/dev/accel0 \
-  -v /app/mount:/app/mount \
+  -v /app/mount/src:/app/mount/src \
   -v /lib/libtpu.so:/lib/libtpu.so \
   -w /app \
   $DOCKER_IMAGE \
-  python /app/src/$PYTHON_PATH"
+  python /app/mount/src/$PYTHON_PATH"
 
 # Add script arguments
 for arg in "${SCRIPT_ARGS[@]}"; do

@@ -14,7 +14,7 @@ log() {
 }
 
 # Check for required environment variables
-required_vars=("PROJECT_ID" "SERVICE_ACCOUNT_JSON")
+required_vars=("PROJECT_ID" "SERVICE_ACCOUNT_JSON" "BUCKET_NAME" "BUCKET_TENSORBOARD")
 for var in "${required_vars[@]}"; do
   if [ -z "${!var}" ]; then
     log "ERROR: Required environment variable $var is not set"
@@ -54,11 +54,12 @@ gcloud run deploy tae-backend \
   --platform managed \
   --region $BUCKET_REGION \
   --allow-unauthenticated \
-  --set-env-vars="PROJECT_ID=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},TPU_NAME=${TPU_NAME},TPU_ZONE=${TPU_ZONE}" \
+  --set-env-vars="PROJECT_ID=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},BUCKET_TENSORBOARD=${BUCKET_TENSORBOARD}" \
   --service-account $SERVICE_ACCOUNT_EMAIL
 
 log "Deployment completed successfully!"
 
 # Output the service URL
 SERVICE_URL=$(gcloud run services describe tae-backend --platform managed --region $BUCKET_REGION --format 'value(status.url)')
-log "Service is available at: $SERVICE_URL" 
+log "Service is available at: $SERVICE_URL"
+log "This service displays experiment data directly from GCS bucket: ${BUCKET_TENSORBOARD}" 

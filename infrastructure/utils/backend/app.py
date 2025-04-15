@@ -1,8 +1,9 @@
 import os
 import json
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 from datetime import datetime
 import logging
+from google.cloud import storage
 
 # Set up logging
 logging.basicConfig(
@@ -21,14 +22,17 @@ app = Flask(__name__)
 # Load environment variables
 project_id = os.environ.get('PROJECT_ID', 'unknown')
 bucket_name = os.environ.get('BUCKET_NAME', 'unknown')
-tpu_name = os.environ.get('TPU_NAME', 'unknown')
-tpu_zone = os.environ.get('TPU_ZONE', 'unknown')
+tensorboard_path = os.environ.get('BUCKET_TENSORBOARD', 'tensorboard-logs/')
+
+# Initialize GCS client
+storage_client = storage.Client()
 
 @app.route('/')
 def index():
+    """Simple index page with basic information"""
     return jsonify({
         'status': 'ok',
-        'message': 'TPU Monitoring Backend API',
+        'message': 'TAE-TPU Experiment Dashboard',
         'timestamp': datetime.now().isoformat()
     })
 
@@ -38,44 +42,77 @@ def config():
     return jsonify({
         'project_id': project_id,
         'bucket_name': bucket_name,
-        'tpu_name': tpu_name,
-        'tpu_zone': tpu_zone
+        'tensorboard_path': tensorboard_path
     })
 
-@app.route('/tpu/status')
-def tpu_status():
-    """Placeholder for TPU status endpoint"""
-    # This would actually query the GCP API for real TPU status
-    return jsonify({
-        'tpu_name': tpu_name,
-        'zone': tpu_zone,
-        'status': 'RUNNING',  # placeholder
-        'health': 'HEALTHY',  # placeholder
-        'accelerator_type': 'v2-8',
-        'updated_at': datetime.now().isoformat()
-    })
+@app.route('/experiments')
+def list_experiments():
+    """List all experiment data from GCS bucket"""
+    try:
+        bucket = storage_client.get_bucket(bucket_name)
+        # Get tensorboard logs path and list the experiment directories
+        blobs = bucket.list_blobs(prefix=tensorboard_path.split('/')[-2])
+        
+        # Extract experiment names (directories)
+        experiment_paths = set()
+        for blob in blobs:
+            # Get the experiment name (first directory after tensorboard_path)
+            path = blob.name
+            if path.endswith('/'):
+                continue
+                
+            parts = path.split('/')
+            if len(parts) > 1:
+                experiment_paths.add(parts[1])  # Get first subdirectory
+        
+        return jsonify({
+            'experiments': list(experiment_paths),
+            'count': len(experiment_paths),
+            'bucket': bucket_name,
+            'updated_at': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error listing experiments: {str(e)}")
+        return jsonify({
+            'error': 'Failed to list experiments',
+            'message': str(e)
+        }), 500
 
-@app.route('/bucket/status')
-def bucket_status():
-    """Placeholder for GCS bucket status endpoint"""
-    # This would actually query the GCS API for real bucket info
-    return jsonify({
-        'bucket_name': bucket_name,
-        'size': '1.2 GB',  # placeholder
-        'object_count': 42,  # placeholder
-        'last_updated': datetime.now().isoformat()
-    })
-
-@app.route('/docker/status')
-def docker_status():
-    """Placeholder for Docker image status endpoint"""
-    return jsonify({
-        'image_name': f'{project_id}/tae-tpu:v1',
-        'created_at': '2023-03-10T10:00:00Z',  # placeholder
-        'status': 'available',  # placeholder
-        'size': '1.5 GB'  # placeholder
-    })
+@app.route('/experiments/<experiment_id>')
+def get_experiment(experiment_id):
+    """Get details for a specific experiment"""
+    try:
+        bucket = storage_client.get_bucket(bucket_name)
+        prefix = f"{tensorboard_path.split('/')[-2]}/{experiment_id}/"
+        
+        # Get experiment files
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        
+        # Extract metadata
+        files = [
+            {
+                'name': blob.name.split('/')[-1],
+                'size': blob.size,
+                'updated': blob.updated.isoformat(),
+                'url': f"https://storage.googleapis.com/{bucket_name}/{blob.name}"
+            }
+            for blob in blobs if not blob.name.endswith('/')
+        ]
+        
+        return jsonify({
+            'experiment_id': experiment_id,
+            'file_count': len(files),
+            'files': files,
+            'updated_at': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting experiment {experiment_id}: {str(e)}")
+        return jsonify({
+            'error': f'Failed to get experiment {experiment_id}',
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
+    # For local testing only
     port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('DEBUG', 'False').lower() == 'true') 

@@ -76,7 +76,6 @@ delete_by_digest() {
     log "Fetching image digests..."
     
     # Get the full list of digest references with format that includes the complete digest
-    #previous: DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="value(digest)" 2>/dev/null || echo "")
     FULL_DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="get(digest)" 2>/dev/null || echo "") 
     
     if [[ -z "$FULL_DIGESTS" ]]; then

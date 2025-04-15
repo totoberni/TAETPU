@@ -40,22 +40,28 @@ else
     log_success "Bucket created successfully"
 fi
 
-# If TPU exists, configure it to access the bucket
-if [[ -n "$TPU_NAME" && -n "$TPU_ZONE" ]]; then
-    log "Checking if TPU '$TPU_NAME' exists..."
-    if gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
-        log "TPU VM exists. Configuring access to GCS bucket..."
-        
-        # Configure gsutil on TPU VM
-        vmssh "gcloud config set project $PROJECT_ID"
-        
-        log_success "TPU VM configured to access GCS bucket"
-    else
-        log "TPU VM does not exist or is not accessible. Skipping TPU configuration."
-    fi
-else
-    log "TPU_NAME or TPU_ZONE not set. Skipping TPU configuration."
-fi
+# Create required directory structure in the bucket
+log "Creating directory structure in bucket..."
+# Create empty placeholder files to establish directory structure
+touch /tmp/placeholder.txt
+
+log "Creating /exp/datasets/ directory..."
+gsutil cp /tmp/placeholder.txt "gs://$BUCKET_NAME/exp/datasets/placeholder.txt"
+
+log "Creating /logs/ directory..."
+gsutil cp /tmp/placeholder.txt "gs://$BUCKET_NAME/logs/placeholder.txt"
+
+log "Creating /backend/ directory..."
+gsutil cp /tmp/placeholder.txt "gs://$BUCKET_NAME/backend/placeholder.txt"
+
+# Clean up
+rm /tmp/placeholder.txt
+
+log_success "Bucket directory structure created successfully"
+
+# Note for TPU VM configuration
+log_warning "NOTE: If you need to access this bucket from a TPU VM, please use:"
+log_warning "  ./tools/gcs_ops/data_ops.sh fuse-vm"
 
 log_success "GCS bucket setup completed successfully"
 log_success "Bucket URL: gs://$BUCKET_NAME"

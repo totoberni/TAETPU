@@ -36,11 +36,11 @@ This repository contains a framework for conducting Transformer model ablation e
 └── tools/                        # Tools for operations and management
     ├── docker_ops/               # Docker operations
     │   ├── mgt/                  # Management scripts
-    │   │   ├── mount.sh          # Script to mount files to TPU VM
-    │   │   ├── run.sh            # Script to execute files on TPU VM
-    │   │   └── scrap.sh          # Script to remove files from TPU VM
+    │   │   ├── mount.sh          # Script to mount files to Docker Image
+    │   │   ├── run.sh            # Script to execute files through Docker Image
+    │   │   └── scrap.sh          # Script to remove files from Docker Image
     │   └── src/                  # Source code for Docker operations
-    └── gcs_ops/                  # GCS storage operations
+    └── gcs_ops/                  # GCS bucket operations
         ├── data_ops.sh           # Unified data operations script
         └── downloads/            # Local dataset storage
 ```
@@ -148,17 +148,23 @@ The `data_ops.sh` script provides data management between your local machine and
 # Show help information
 ./tools/gcs_ops/data_ops.sh --help
 
-# Download datasets to local machine
-./tools/gcs_ops/data_ops.sh download-local
+# Download datasets from Hugging Face to local machine
+./tools/gcs_ops/data_ops.sh download --local
+
+# Download datasets from GCS bucket to local machine
+./tools/gcs_ops/data_ops.sh download --gcs
 
 # Upload local datasets to GCS bucket
-./tools/gcs_ops/data_ops.sh upload --bucket-name your-bucket-name
-
-# Download datasets from GCS bucket to TPU VM
-./tools/gcs_ops/data_ops.sh download-gcs --bucket-name your-bucket-name
+./tools/gcs_ops/data_ops.sh upload
 
 # List available datasets in GCS bucket
-./tools/gcs_ops/data_ops.sh list --bucket-name your-bucket-name
+./tools/gcs_ops/data_ops.sh list
+
+# Mount bucket directories to TPU VM
+./tools/gcs_ops/data_ops.sh fuse-vm
+
+# Unmount bucket directories from TPU VM
+./tools/gcs_ops/data_ops.sh unfuse-vm
 ```
 
 ### 3.2 Working with TPU VM

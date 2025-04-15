@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create required directories
-RUN mkdir -p /app/logs /app/data
+RUN mkdir -p /app/logs
 
 # Expose port for Cloud Run
 EXPOSE 8080
