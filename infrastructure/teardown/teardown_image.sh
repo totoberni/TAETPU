@@ -75,94 +75,39 @@ delete_by_tag() {
 delete_by_digest() {
     log "Fetching image digests..."
     
-    # Get the list of digests
-    DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="value(digest)" 2>/dev/null || echo "")
+    # Get the full list of digest references with format that includes the complete digest
+    #previous: DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="value(digest)" 2>/dev/null || echo "")
+    FULL_DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="get(digest)" 2>/dev/null || echo "") 
     
-    if [[ -z "$DIGESTS" ]]; then
+    if [[ -z "$FULL_DIGESTS" ]]; then
         log_warning "No digests found for $REPO_NAME"
         return 1
     fi
     
-    # Convert to array
-    readarray -t DIGEST_ARRAY <<< "$DIGESTS"
+    log_success "Found $(echo "$FULL_DIGESTS" | wc -l) digests"
     
-    # Reverse the array (newest first)
-    REVERSED_ARRAY=()
-    for ((i=${#DIGEST_ARRAY[@]}-1; i>=0; i--)); do
-        REVERSED_ARRAY+=("${DIGEST_ARRAY[i]}")
-    done
-    
-    log_success "Found ${#REVERSED_ARRAY[@]} digests"
-    
-    # Try deleting digests up to 3 times
     local success=0
-    local failed_digests=()
     
-    for attempt in {1..3}; do
-        log "Deletion attempt $attempt/3..."
-        local current_success=0
-        
-        for i in "${!REVERSED_ARRAY[@]}"; do
-            digest="${REVERSED_ARRAY[i]}"
-            
-            # Skip empty or already deleted digests
-            if [[ -z "$digest" || "$digest" == "DELETED" ]]; then
-                continue
-            fi
-            
-            log "Deleting digest: $digest"
-            if gcloud container images delete "${REPO_NAME}@${digest}" --quiet --force-delete-tags; then
-                log_success "Successfully deleted digest $digest"
-                # Mark as deleted
-                REVERSED_ARRAY[i]="DELETED"
-                current_success=1
-                success=1
-            else
-                log_warning "Failed to delete digest $digest on attempt $attempt"
-                # Add to failed digests if this is the final attempt
-                if [[ $attempt -eq 3 ]]; then
-                    failed_digests+=("$digest")
-                fi
-            fi
-        done
-        
-        # If no progress was made in this attempt, break
-        if [[ $current_success -eq 0 ]]; then
-            log_warning "No digests could be deleted in attempt $attempt, stopping deletion process"
-            break
+    # Process each full digest
+    while read -r full_digest; do
+        # Skip empty lines
+        if [[ -z "$full_digest" ]]; then
+            continue
         fi
         
-        # Check if all digests are deleted
-        local all_deleted=1
-        for digest in "${REVERSED_ARRAY[@]}"; do
-            if [[ "$digest" != "DELETED" && -n "$digest" ]]; then
-                all_deleted=0
-                break
-            fi
-        done
-        
-        if [[ $all_deleted -eq 1 ]]; then
-            log_success "All digests have been deleted"
-            break
+        log "Deleting full digest: $full_digest"
+        if gcloud container images delete "${REPO_NAME}@${full_digest}" --quiet --force-delete-tags; then
+            log_success "Successfully deleted digest $full_digest"
+            success=1
+        else
+            log_warning "Failed to delete digest $full_digest"
         fi
-    done
+    done <<< "$FULL_DIGESTS"
     
-    # If there are failed digests, provide manual deletion instructions
-    if [[ ${#failed_digests[@]} -gt 0 ]]; then
-        log_warning "Some digests could not be automatically deleted. Please try the following manual commands:"
-        echo ""
-        echo "# Manual deletion commands:"
-        echo "PROJECT_ID=$PROJECT_ID"
-        echo "REPO_NAME=$REPO_NAME"
-        echo ""
-        echo "for digest in \\"
-        for digest in "${failed_digests[@]}"; do
-            echo "  $digest \\"
-        done
-        echo "; do"
-        echo "  gcloud container images delete \"\${REPO_NAME}@\${digest}\" --quiet --force-delete-tags"
-        echo "done"
-        echo ""
+    if [[ $success -eq 1 ]]; then
+        log_success "Digest deletion completed"
+    else
+        log_warning "No digests could be deleted"
     fi
     
     return $((1 - success))
