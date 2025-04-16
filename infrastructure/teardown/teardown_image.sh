@@ -71,15 +71,15 @@ delete_by_tag() {
     return 0
 }
 
-# Simplified function to delete by digest
+# Optionally, delete by digest (sha256:...)
+# gcloud container images list-tags eu.gcr.io/infra-tempo-401122/tae-tpu --filter='-tags:*' --format='get(digest)' --limit=unlimited | xargs -I{} gcloud container images delete "eu.gcr.io/infra-tempo-401122/tae-tpu@{}"
 delete_by_digest() {
     log "Deleting untagged images..."
     
     while true; do
         # Run the deletion command directly without capturing output
         log "Running deletion command for untagged images..."
-        gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited | \
-            xargs -I{} gcloud container images delete "${REPO_NAME}@{}" --quiet --force-delete-tags
+        gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited | xargs -I{} gcloud container images delete "${REPO_NAME}@{}" --quiet --force-delete-tags
         
         # Check if any untagged images remain
         REMAINING=$(gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited)

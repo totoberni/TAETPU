@@ -12,6 +12,9 @@ load_env_vars "$PROJECT_DIR/config/.env"
 OUTPUT_DIR="./tools/gcs_ops/downloads"  # Use a simple relative path
 DATASETS=""
 GCSFUSE_FLAGS="--implicit-dirs"  # Default flags for gcsfuse
+UPLOAD_TYPE=""
+FILES_TO_UPLOAD=""
+DIR_TO_UPLOAD=""
 
 # --- Functions ---
 show_help() {
@@ -30,6 +33,8 @@ show_help() {
     echo "  --datasets LIST     Space-separated list of dataset keys to process"
     echo "  --gcs               Download from GCS bucket (for download command)"
     echo "  --local             Download from Hugging Face (for download command)"
+    echo "  --files PATHS       Space-separated list of files to upload"
+    echo "  --dir PATH          Directory to upload recursively"
     echo "  --fuse-flags FLAGS  Flags to pass to gcsfuse (default: --implicit-dirs)"
     echo "  -h, --help          Show this help message"
 }
@@ -82,7 +87,7 @@ list_available_datasets() {
 
 # Mount GCS bucket directories on TPU VM using FUSE
 mount_gcs_bucket() {
-    local container_name="${CONTAINER_NAME:-tae-tpu-container}"
+    local container_name="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
 
     # Check if TPU VM exists and is accessible
     log "Checking if TPU VM '$TPU_NAME' exists and is accessible..."
@@ -98,11 +103,11 @@ mount_gcs_bucket() {
 # Mount GCS bucket with FUSE
 echo "Mounting GCS bucket directories to container..."
 
-# Check if the container is running
-if ! sudo docker ps | grep -q "$container_name"; then
-    echo "Container '$container_name' is not running"
-    exit 1
-fi
+# # Check if the container is running
+# if ! gcloud container images list-tags "$container_name" &> /dev/null; then 
+#     echo "Container '$container_name' is not running"
+#     exit 1
+# fi
 
 # Mount exp directory (includes datasets and all experiment data)
 echo "Mounting exp/ directory..."
@@ -137,7 +142,7 @@ EOF
 
 # Unmount GCS bucket from TPU VM
 unmount_gcs_bucket() {
-    local container_name="${CONTAINER_NAME:-tae-tpu-container}"
+    local container_name= "eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
     
     # Check if TPU VM exists and is accessible
     log "Checking if TPU VM '$TPU_NAME' exists and is accessible..."
@@ -153,11 +158,11 @@ unmount_gcs_bucket() {
 # Unmount the GCS bucket directories from the Docker container
 echo "Unmounting GCS bucket directories from container..."
 
-# Check if the container is running
-if ! sudo docker ps | grep -q "$container_name"; then
-    echo "Container '$container_name' is not running"
-    exit 1
-fi
+# # Check if the container is running
+# if ! sudo docker run '$container_name' &> /dev/null; then 
+#     echo "Container '$container_name' is not running"
+#     exit 1
+# fi
 
 # Check and unmount exp directory
 if sudo docker exec $container_name mountpoint -q /app/gcs_mount/exp; then
@@ -220,6 +225,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --datasets)
+            UPLOAD_TYPE="datasets"
             shift
             DATASETS=""
             while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
@@ -227,6 +233,21 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             DATASETS="${DATASETS# }" # Remove leading space
+            ;;
+        --files)
+            UPLOAD_TYPE="files"
+            shift
+            FILES_TO_UPLOAD=""
+            while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
+                FILES_TO_UPLOAD="$FILES_TO_UPLOAD $1"
+                shift
+            done
+            FILES_TO_UPLOAD="${FILES_TO_UPLOAD# }" # Remove leading space
+            ;;
+        --dir)
+            UPLOAD_TYPE="dir"
+            DIR_TO_UPLOAD="$2"
+            shift 2
             ;;
         --fuse-flags)
             GCSFUSE_FLAGS="$2"
@@ -277,7 +298,7 @@ log "Using GCS path: gs://$BUCKET_NAME/$GCS_DATASETS_PATH"
 
 log_section "Parsing dataset keys from .env"
 # Get dataset keys if not provided
-if [[ -z "$DATASETS" ]]; then
+if [[ -z "$DATASETS" && "$UPLOAD_TYPE" == "datasets" ]]; then
     DATASETS=$(list_available_datasets)
     if [[ -z "$DATASETS" ]]; then
         log_error "No datasets found in environment variables (DATASET_*_NAME)"
@@ -371,29 +392,100 @@ EOF
 
 # Upload datasets from local storage to GCS bucket
 elif [[ "$COMMAND" == "upload" ]]; then
-    log_section "Uploading Datasets to GCS"
+    log_section "Uploading to GCS"
     
-    for dataset_key in $DATASETS; do
-        # Try to find dataset in local downloads first
-        if [[ -d "$DOWNLOAD_LOCAL/$dataset_key" ]]; then
-            local_dataset_path="$DOWNLOAD_LOCAL/$dataset_key"
-        # Then check GCS downloads
-        elif [[ -d "$DOWNLOAD_GCS/$dataset_key" ]]; then
-            local_dataset_path="$DOWNLOAD_GCS/$dataset_key"
-        else
-            log_warning "Dataset $dataset_key not found in any local directory"
-            continue
+    # No upload type specified
+    if [[ -z "$UPLOAD_TYPE" ]]; then
+        log_error "Upload type not specified. Use --datasets, --files, or --dir"
+        exit 1
+    fi
+    
+    # Upload datasets (from .env)
+    if [[ "$UPLOAD_TYPE" == "datasets" ]]; then
+        log_section "Uploading Datasets to GCS"
+        
+        # Ensure datasets directory exists in bucket
+        gcs_datasets_dir="gs://$BUCKET_NAME/${GCS_DATASETS_PATH}datasets"
+        log "Ensuring datasets directory exists: $gcs_datasets_dir"
+        
+        # Create directory if it doesn't exist
+        if ! gcloud storage ls "$gcs_datasets_dir" &>/dev/null; then
+            touch /tmp/placeholder.txt
+            gcloud storage cp /tmp/placeholder.txt "$gcs_datasets_dir/placeholder.txt"
+            gcloud storage rm "$gcs_datasets_dir/placeholder.txt"
+            rm /tmp/placeholder.txt
         fi
         
-        gcs_dataset_path="gs://$BUCKET_NAME/$GCS_DATASETS_PATH$dataset_key"
+        for dataset_key in $DATASETS; do
+            # Try to find dataset in local downloads first
+            if [[ -d "$DOWNLOAD_LOCAL/$dataset_key" ]]; then
+                local_dataset_path="$DOWNLOAD_LOCAL/$dataset_key"
+            # Then check GCS downloads
+            elif [[ -d "$DOWNLOAD_GCS/$dataset_key" ]]; then
+                local_dataset_path="$DOWNLOAD_GCS/$dataset_key"
+            else
+                log_warning "Dataset $dataset_key not found in any local directory"
+                continue
+            fi
+            
+            # Upload to the specified path structure: gs://<BUCKET>/exp/datasets/<dataset_key>
+            gcs_dataset_path="gs://$BUCKET_NAME/${GCS_DATASETS_PATH}datasets/$dataset_key"
+            
+            log "Uploading $dataset_key dataset to $gcs_dataset_path..."
+            gcloud storage cp -r "$local_dataset_path/" "$gcs_dataset_path/"
+            
+            [[ $? -eq 0 ]] && log_success "Successfully uploaded $dataset_key dataset" || \
+                log_error "Failed to upload $dataset_key dataset"
+        done
+    
+    # Upload specific files
+    elif [[ "$UPLOAD_TYPE" == "files" ]]; then
+        log_section "Uploading Files to GCS"
         
-        # Create the directory in GCS if it doesn't exist
-        log "Uploading $dataset_key dataset to $gcs_dataset_path..."
-        gcloud storage cp -r "$local_dataset_path/" "$gcs_dataset_path/"
+        if [[ -z "$FILES_TO_UPLOAD" ]]; then
+            log_error "No files specified for upload"
+            exit 1
+        fi
         
-        [[ $? -eq 0 ]] && log_success "Successfully uploaded $dataset_key dataset" || \
-            log_error "Failed to upload $dataset_key dataset"
-    done
+        for file in $FILES_TO_UPLOAD; do
+            if [[ ! -f "$file" ]]; then
+                log_warning "File not found: $file"
+                continue
+            fi
+            
+            filename=$(basename "$file")
+            gcs_file_path="gs://$BUCKET_NAME/${GCS_DATASETS_PATH}downloads/$filename"
+            
+            log "Uploading file $file to $gcs_file_path..."
+            gcloud storage cp "$file" "$gcs_file_path"
+            
+            [[ $? -eq 0 ]] && log_success "Successfully uploaded file: $filename" || \
+                log_error "Failed to upload file: $filename"
+        done
+    
+    # Upload directory recursively
+    elif [[ "$UPLOAD_TYPE" == "dir" ]]; then
+        log_section "Uploading Directory to GCS"
+        
+        if [[ -z "$DIR_TO_UPLOAD" ]]; then
+            log_error "No directory specified for upload"
+            exit 1
+        fi
+        
+        if [[ ! -d "$DIR_TO_UPLOAD" ]]; then
+            log_error "Directory not found: $DIR_TO_UPLOAD"
+            exit 1
+        fi
+        
+        dir_name=$(basename "$DIR_TO_UPLOAD")
+        gcs_dir_path="gs://$BUCKET_NAME/${GCS_DATASETS_PATH}downloads/$dir_name"
+        
+        log "Uploading directory $DIR_TO_UPLOAD to $gcs_dir_path..."
+        gcloud storage cp -r "$DIR_TO_UPLOAD/" "$gcs_dir_path/"
+        
+        [[ $? -eq 0 ]] && log_success "Successfully uploaded directory: $dir_name" || \
+            log_error "Failed to upload directory: $dir_name"
+    fi
 
 # Clean/remove datasets from GCS bucket
 elif [[ "$COMMAND" == "clean" ]]; then
@@ -426,12 +518,15 @@ elif [[ "$COMMAND" == "clean" ]]; then
 elif [[ "$COMMAND" == "list" ]]; then
     log_section "Listing Content in GCS Bucket"
     
-    log "Listing all datasets in gs://$BUCKET_NAME/$GCS_DATASETS_PATH..."
-    gcloud storage ls "gs://$BUCKET_NAME/$GCS_DATASETS_PATH"
+    log "Listing all contents in gs://$BUCKET_NAME/..."
+    gcloud storage ls "gs://$BUCKET_NAME/"
     
+    # If datasets are specified, list them in detail
     if [[ -n "$DATASETS" ]]; then
+        log_section "Listing Specific Datasets"
+        
         for dataset_key in $DATASETS; do
-            gcs_dataset_path="gs://$BUCKET_NAME/$GCS_DATASETS_PATH$dataset_key"
+            gcs_dataset_path="gs://$BUCKET_NAME/${GCS_DATASETS_PATH}datasets/$dataset_key"
             
             # Check if the dataset exists before attempting to list
             if ! gcloud storage ls "$gcs_dataset_path" &>/dev/null; then
@@ -441,6 +536,23 @@ elif [[ "$COMMAND" == "list" ]]; then
             
             log_section "Contents of dataset: $dataset_key"
             gcloud storage ls -r "$gcs_dataset_path/**"
+            echo ""
+        done
+    # Otherwise, list all top-level directories recursively 
+    else
+        log_section "Bucket Structure Overview"
+        
+        # Get the top-level directories
+        top_dirs=$(gcloud storage ls "gs://$BUCKET_NAME/" | tr -d '/' | xargs -n1 basename 2>/dev/null)
+        
+        for dir in $top_dirs; do
+            # Skip empty results
+            if [[ -z "$dir" ]]; then
+                continue
+            fi
+            
+            log_section "Contents of /$dir/"
+            gcloud storage ls "gs://$BUCKET_NAME/$dir/"
             echo ""
         done
     fi
@@ -457,22 +569,6 @@ elif [[ "$COMMAND" == "fuse-vm" ]]; then
     log "- Bucket: $BUCKET_NAME"
     log "- Mount directories: exp/ and logs/"
     log "- FUSE flags: $GCSFUSE_FLAGS"
-    
-    # Grant the TPU service account access to the bucket if not already done
-    log "Ensuring TPU service account has access to bucket..."
-    SERVICE_ACCOUNT=$(gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" --format="value(serviceAccount)")
-    
-    if [[ -n "$SERVICE_ACCOUNT" ]]; then
-        log "Granting Storage Object Viewer permission to service account: $SERVICE_ACCOUNT"
-        gcloud storage buckets add-iam-policy-binding "gs://$BUCKET_NAME" \
-            --member="serviceAccount:$SERVICE_ACCOUNT" --role="roles/storage.objectViewer"
-        
-        log "Granting Storage Object Creator permission to service account: $SERVICE_ACCOUNT"
-        gcloud storage buckets add-iam-policy-binding "gs://$BUCKET_NAME" \
-            --member="serviceAccount:$SERVICE_ACCOUNT" --role="roles/storage.objectCreator"
-    else
-        log_warning "Could not determine TPU service account. Make sure the service account has proper access to the bucket."
-    fi
     
     # Mount the bucket directories on the TPU VM
     mount_gcs_bucket
