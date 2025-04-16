@@ -71,45 +71,30 @@ delete_by_tag() {
     return 0
 }
 
-# Function to delete by digest
+# Simplified function to delete by digest
 delete_by_digest() {
-    log "Fetching image digests..."
+    log "Deleting untagged images..."
     
-    # Get the full list of digest references with format that includes the complete digest
-    FULL_DIGESTS=$(gcloud container images list-tags "$REPO_NAME" --format="get(digest)" 2>/dev/null || echo "") 
-    
-    if [[ -z "$FULL_DIGESTS" ]]; then
-        log_warning "No digests found for $REPO_NAME"
-        return 1
-    fi
-    
-    log_success "Found $(echo "$FULL_DIGESTS" | wc -l) digests"
-    
-    local success=0
-    
-    # Process each full digest
-    while read -r full_digest; do
-        # Skip empty lines
-        if [[ -z "$full_digest" ]]; then
-            continue
-        fi
+    while true; do
+        # Run the deletion command directly without capturing output
+        log "Running deletion command for untagged images..."
+        gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited | \
+            xargs -I{} gcloud container images delete "${REPO_NAME}@{}" --quiet --force-delete-tags
         
-        log "Deleting full digest: $full_digest"
-        if gcloud container images delete "${REPO_NAME}@${full_digest}" --quiet --force-delete-tags; then
-            log_success "Successfully deleted digest $full_digest"
-            success=1
+        # Check if any untagged images remain
+        REMAINING=$(gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited)
+        
+        if [[ -z "$REMAINING" ]]; then
+            log_success "Successfully deleted all untagged images"
+            return 0
         else
-            log_warning "Failed to delete digest $full_digest"
+            log_warning "Some untagged images still remain"
+            if ! confirm_action "Retry deletion of untagged images?" "y"; then
+                log "Deletion of untagged images cancelled by user"
+                return 1
+            fi
         fi
-    done <<< "$FULL_DIGESTS"
-    
-    if [[ $success -eq 1 ]]; then
-        log_success "Digest deletion completed"
-    else
-        log_warning "No digests could be deleted"
-    fi
-    
-    return $((1 - success))
+    done
 }
 
 # Check if the repository exists
