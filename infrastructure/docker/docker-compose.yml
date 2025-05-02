@@ -12,7 +12,6 @@ services:
       - PJRT_DEVICE=TPU
       # Project variables
       - PROJECT_ID=${PROJECT_ID}
-      - BUCKET_NAME=${BUCKET_NAME}
     volumes:
       # System volumes - essential for TPU access
       - /dev:/dev

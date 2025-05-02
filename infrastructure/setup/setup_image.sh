@@ -16,7 +16,7 @@ ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-check_env_vars "PROJECT_ID" "BUCKET_NAME" "SERVICE_ACCOUNT_JSON" || exit 1
+check_env_vars "PROJECT_ID" "SERVICE_ACCOUNT_JSON" || exit 1
 
 # Set Docker directories
 DOCKER_DIR="$PROJECT_DIR/infrastructure/docker"
@@ -30,7 +30,7 @@ log_success "Image reference: $TPU_IMAGE_NAME"
 log_section "Configuration"
 log "Project ID: $PROJECT_ID"
 log "Image name: $TPU_IMAGE_NAME"
-log "This image is designed for TPU computation with FUSE bucket mounting"
+log "This image is designed for TPU computation with source code mounted in /src"
 
 # Set up authentication
 setup_auth
@@ -81,5 +81,4 @@ popd > /dev/null
 
 log_success "Docker image build and push completed successfully"
 log_success "Image available at: $TPU_IMAGE_NAME"
-log_success "Note: This image uses FUSE for direct bucket access instead of networking"
 exit 0

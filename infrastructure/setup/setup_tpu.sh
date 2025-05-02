@@ -13,7 +13,7 @@ ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Essential environment validation only
-check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "RUNTIME_VERSION" "SERVICE_ACCOUNT_EMAIL" "BUCKET_NAME" || exit 1
+check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "RUNTIME_VERSION" "SERVICE_ACCOUNT_EMAIL" || exit 1
 
 # Define image name
 TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
@@ -25,7 +25,6 @@ log "Project: $PROJECT_ID"
 log "TPU Name: $TPU_NAME"
 log "TPU Type: $TPU_TYPE"
 log "Zone: $TPU_ZONE"
-log "Bucket: $BUCKET_NAME"
 log "Image: $TPU_IMAGE_NAME"
 log "Service Account: $SERVICE_ACCOUNT_EMAIL"
 
@@ -62,7 +61,7 @@ fi
 # Pull image and set up container
 log_section "Container Setup"
 
-# Create a simplified setup script for the TPU VM
+# setup script for the TPU VM
 TPU_SETUP_SCRIPT=$(mktemp)
 cat > "$TPU_SETUP_SCRIPT" << EOF
 #!/bin/bash
@@ -90,7 +89,6 @@ sudo docker run -d --name $CONTAINER_NAME \
     -v /app/mount:/app/mount \
     -e PJRT_DEVICE=TPU \
     -e PROJECT_ID='${PROJECT_ID}' \
-    -e BUCKET_NAME='${BUCKET_NAME}' \
     $TPU_IMAGE_NAME
 EOF
 

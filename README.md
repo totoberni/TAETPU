@@ -16,7 +16,6 @@ This repository contains a framework for conducting Transformer model ablation e
 ├── infrastructure/               # Infrastructure setup and management
 │   ├── setup/                    # Scripts for setting up the environment
 │   │   ├── check_zones.sh        # Script to find available TPU zones
-│   │   ├── setup_bucket.sh       # Script to create GCS bucket
 │   │   ├── setup_image.sh        # Script to build and push Docker image to GCR
 │   │   └── setup_tpu.sh          # Script to create TPU VM and pull Docker image
 │   ├── docker/                   # Docker configuration
@@ -27,22 +26,17 @@ This repository contains a framework for conducting Transformer model ablation e
 │   ├── utils/                    # Shared utilities
 │   │   ├── common.sh             # Common bash utilities and functions
 │   │   ├── monitors/             # Monitoring utilities
-│   │   ├── logging/              # Logging utilities
-│   │   └── backend/              # Backend utilities
+│   │   └── logging/              # Logging utilities
 │   └── teardown/                 # Scripts for resource cleanup
-│       ├── teardown_bucket.sh    # Script to delete GCS bucket
 │       ├── teardown_image.sh     # Script to clean up Docker images
 │       └── teardown_tpu.sh       # Script to delete TPU VM
 └── tools/                        # Tools for operations and management
-    ├── docker_ops/               # Docker operations
-    │   ├── mgt/                  # Management scripts
-    │   │   ├── mount.sh          # Script to mount files to Docker Image
-    │   │   ├── run.sh            # Script to execute files through Docker Image
-    │   │   └── scrap.sh          # Script to remove files from Docker Image
-    │   └── src/                  # Source code for Docker operations
-    └── gcs_ops/                  # GCS bucket operations
-        ├── data_ops.sh           # Unified data operations script
-        └── downloads/            # Local dataset storage
+    └── docker_ops/               # Docker operations
+        ├── mgt/                  # Management scripts
+        │   ├── mount.sh          # Script to mount files to Docker Image
+        │   ├── run.sh            # Script to execute files through Docker Image
+        │   └── scrap.sh          # Script to remove files from Docker Image
+        └── src/                  # Source code for Docker operations
 ```
 
 ## 0. Requirements
@@ -61,7 +55,6 @@ Make all scripts executable:
 chmod +x infrastructure/setup/*.sh
 chmod +x infrastructure/teardown/*.sh
 chmod +x infrastructure/utils/*.sh
-chmod +x tools/gcs_ops/data_ops.sh
 chmod +x tools/docker_ops/mgt/*.sh
 ```
 
@@ -84,15 +77,9 @@ Your `.env` file should contain:
 PROJECT_ID=your-project-id
 TPU_REGION=europe-west4
 TPU_ZONE=europe-west4-a
-BUCKET_REGION=europe-west4
 TPU_NAME=your-tpu-name
 TPU_TYPE=v2-8
 RUNTIME_VERSION=tpu-ubuntu2204-base
-
-# Cloud Storage
-BUCKET_NAME=your-bucket-name
-BUCKET_DATRAIN=your-bucket-name/data
-BUCKET_TENSORBOARD=your-bucket-name/tensorboard
 
 # Service Account details
 SERVICE_ACCOUNT_JSON=your-service-account.json
@@ -114,15 +101,7 @@ Find a zone where your desired TPU type is available:
 ./infrastructure/setup/check_zones.sh
 ```
 
-### 2.2 Set Up Google Cloud Storage Bucket
-
-Create a bucket for storing experiment data, model checkpoints, and logs:
-
-```bash
-./infrastructure/setup/setup_bucket.sh
-```
-
-### 2.3 Build and Push the Docker Image
+### 2.2 Build and Push the Docker Image
 
 Build your Docker image and push it to Google Container Registry:
 
@@ -130,7 +109,7 @@ Build your Docker image and push it to Google Container Registry:
 ./infrastructure/setup/setup_image.sh
 ```
 
-### 2.4 Set Up TPU VM and Pull Docker Image
+### 2.3 Set Up TPU VM and Pull Docker Image
 
 Create the TPU VM, pull the Docker image, and start the container:
 
@@ -140,34 +119,7 @@ Create the TPU VM, pull the Docker image, and start the container:
 
 ## 3. Development Workflow
 
-### 3.1 Data Operations
-
-The `data_ops.sh` script provides data management between your local machine and Google Cloud Storage:
-
-```bash
-# Show help information
-./tools/gcs_ops/data_ops.sh --help
-
-# Download datasets from Hugging Face to local machine
-./tools/gcs_ops/data_ops.sh download --local
-
-# Download datasets from GCS bucket to local machine
-./tools/gcs_ops/data_ops.sh download --gcs
-
-# Upload local datasets to GCS bucket
-./tools/gcs_ops/data_ops.sh upload
-
-# List available datasets in GCS bucket
-./tools/gcs_ops/data_ops.sh list
-
-# Mount bucket directories to TPU VM
-./tools/gcs_ops/data_ops.sh fuse-vm
-
-# Unmount bucket directories from TPU VM
-./tools/gcs_ops/data_ops.sh unfuse-vm
-```
-
-### 3.2 Working with TPU VM
+### 3.1 Working with TPU VM
 
 Mount and run files on the TPU VM:
 
@@ -192,9 +144,6 @@ When you're done with your TPU resources:
 
 # Delete the Docker images (local and GCR)
 ./infrastructure/teardown/teardown_image.sh
-
-# Delete the GCS bucket (will prompt for confirmation)
-./infrastructure/teardown/teardown_bucket.sh
 ```
 
 ## 5. Additional Resources

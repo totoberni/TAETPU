@@ -38,22 +38,14 @@ WORKDIR /app
 # Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 
-# Install minimal runtime dependencies and Cloud Storage FUSE
+# Install minimal runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas-dev \
     curl \
-    fuse \
-    lsb-release \
-    gnupg \
-    && export GCSFUSE_REPO=gcsfuse-`lsb_release -c -s` \
-    && echo "deb https://packages.cloud.google.com/apt $GCSFUSE_REPO main" | tee /etc/apt/sources.list.d/gcsfuse.list \
-    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
-    && apt-get update \
-    && apt-get install -y gcsfuse \
     && rm -rf /var/lib/apt/lists/*
 
-# Create only required directories
-RUN mkdir -p /app/mount/src /app/gcs_mount/exp/datasets /app/gcs_mount/logs
+# Create required directories
+RUN mkdir -p /app/mount/src
 
 # Create symbolic link for backward compatibility
 RUN ln -sf /app/mount/src /app/src
