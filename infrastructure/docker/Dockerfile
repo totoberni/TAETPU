@@ -45,10 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create required directories
-RUN mkdir -p /app/mount/src
-
-# Create symbolic link for backward compatibility
-RUN ln -sf /app/mount/src /app/src
+RUN mkdir -p /app/mount/src /app/mount/src/datasets
 
 # Health check for mount verification
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

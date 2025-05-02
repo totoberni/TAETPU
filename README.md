@@ -23,6 +23,10 @@ This repository contains a framework for conducting Transformer model ablation e
 │   │   ├── docker-compose.yml    # Docker Compose configuration
 │   │   ├── entrypoint.sh         # Container entry point script
 │   │   └── requirements.txt      # Python dependencies for Docker
+│   ├── mgt/                      # Management scripts for Docker operations
+│   │   ├── mount.sh              # Script to mount files to Docker Image
+│   │   ├── run.sh                # Script to execute files through Docker Image
+│   │   └── scrap.sh              # Script to remove files from Docker Image
 │   ├── utils/                    # Shared utilities
 │   │   ├── common.sh             # Common bash utilities and functions
 │   │   ├── monitors/             # Monitoring utilities
@@ -30,13 +34,10 @@ This repository contains a framework for conducting Transformer model ablation e
 │   └── teardown/                 # Scripts for resource cleanup
 │       ├── teardown_image.sh     # Script to clean up Docker images
 │       └── teardown_tpu.sh       # Script to delete TPU VM
-└── tools/                        # Tools for operations and management
-    └── docker_ops/               # Docker operations
-        ├── mgt/                  # Management scripts
-        │   ├── mount.sh          # Script to mount files to Docker Image
-        │   ├── run.sh            # Script to execute files through Docker Image
-        │   └── scrap.sh          # Script to remove files from Docker Image
-        └── src/                  # Source code for Docker operations
+└── src/                          # Source code for TPU experiments
+    ├── configs/                  # Configuration files for experiments
+    └── data/                     # Data processing and management
+        └── data_import.py        # Script to download and process datasets
 ```
 
 ## 0. Requirements
@@ -55,7 +56,7 @@ Make all scripts executable:
 chmod +x infrastructure/setup/*.sh
 chmod +x infrastructure/teardown/*.sh
 chmod +x infrastructure/utils/*.sh
-chmod +x tools/docker_ops/mgt/*.sh
+chmod +x infrastructure/mgt/*.sh
 ```
 
 ## 1. Configuration
@@ -125,14 +126,34 @@ Mount and run files on the TPU VM:
 
 ```bash
 # Mount files to TPU VM
-./tools/docker_ops/mgt/mount.sh example.py
+./infrastructure/mgt/mount.sh example.py
 
 # Run a file on TPU VM
-./tools/docker_ops/mgt/run.sh example.py
+./infrastructure/mgt/run.sh example.py
 
 # Clean up files from TPU VM
-./tools/docker_ops/mgt/scrap.sh --all
+./infrastructure/mgt/scrap.sh --all
 ```
+
+### 3.2 Working with Data
+
+The project includes a data import script for downloading and processing datasets:
+
+```bash
+# Mount the data import script to TPU VM
+./infrastructure/mgt/mount.sh data/data_import.py
+
+# Run the data import script on TPU VM
+./infrastructure/mgt/run.sh data/data_import.py
+
+# Run with specific options
+./infrastructure/mgt/run.sh data/data_import.py --force --gutenberg-only
+```
+
+The data import script supports the following options:
+- `--force`: Force overwrite existing datasets without confirmation
+- `--gutenberg-only`: Only process the gutenberg dataset
+- `--emotion-only`: Only process the emotion dataset
 
 ## 4. Teardown Resources
 

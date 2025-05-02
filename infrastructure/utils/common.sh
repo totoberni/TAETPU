@@ -89,7 +89,7 @@ function init_script() {
   # Set paths if not already defined by the calling script
   if [[ -z "$SCRIPT_DIR" || -z "$PROJECT_DIR" ]]; then
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[1]}" )" &> /dev/null && pwd )"
-    PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+    PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
   fi
   
   # Ensure PROJECT_DIR is correctly set
