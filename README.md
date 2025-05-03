@@ -42,9 +42,8 @@ This repository contains a framework for conducting Transformer model ablation e
     │   ├── data_pipeline.py      # Main entry point for data preprocessing
     │   ├── data_types.py         # Core data structures for inputs/targets
     │   ├── processing_utils.py   # Shared preprocessing utilities
-    │   ├── preprocess_transformer.py  # Transformer-specific preprocessing
-    │   ├── preprocess_static.py       # Static embedding preprocessing
-    │   └── task_generators.py         # Task-specific label generators (TODO)
+    │   ├── process_transformer.py # Transformer-specific preprocessing
+    │   └── process_static.py     # Static embedding preprocessing
     ├── models/                   # Model definitions and components
     └── cache/                    # Cached preprocessing results
 ```
@@ -140,9 +139,15 @@ Mount and run files on the TPU VM:
 # Run a file on TPU VM
 ./infrastructure/mgt/run.sh example.py
 
-# Clean up files from TPU VM
+# Clean up files from TPU VM (preserves critical directory structure)
 ./infrastructure/mgt/scrap.sh --all
 ```
+
+The management scripts now intelligently handle the required directory structure:
+
+- `mount.sh` - Creates/maintains directories when mounting files
+- `run.sh` - Validates directories before running data processing scripts
+- `scrap.sh` - Removes files while preserving essential directory structure
 
 ### 3.2 Working with Data
 
@@ -196,7 +201,7 @@ The data pipeline supports the following options:
   - `--examples N`: Number of examples to show (default: 3)
   - `--detailed`: Show detailed information about examples
 
-Processed datasets are saved to the `/app/mount/src/datasets/processed` directory in the Docker container.
+Processed datasets are saved to the `/app/mount/src/datasets/clean` directory in the Docker container.
 
 ### 3.3 Viewing Datasets
 

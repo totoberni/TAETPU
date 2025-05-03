@@ -44,8 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create required directories
-RUN mkdir -p /app/mount/src /app/mount/src/datasets
+# Create base directory
+RUN mkdir -p /app/mount/src
 
 # Health check for mount verification
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

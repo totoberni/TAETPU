@@ -18,7 +18,7 @@ services:
       - /lib/libtpu.so:/lib/libtpu.so
       # Authentication - create keys directory at runtime
       - ${PWD}/config/${SERVICE_ACCOUNT_JSON}:/app/service-account.json:ro
-      # Application volume - only mount the src directory
+      # Application volume - mount the entire src directory structure
       - ${PWD}/src:/app/mount/src
     restart: unless-stopped
     healthcheck:
@@ -27,3 +27,5 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+
+# No named volumes defined in this alternative configuration 

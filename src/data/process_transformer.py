@@ -18,7 +18,7 @@ from data_types import TransformerInput, TransformerTarget
 import processing_utils as utils
 
 # Setup logger
-logger = utils.setup_logger('preprocess_transformer')
+logger = utils.setup_logger('process_transformer')
 
 def initialize_tokenizer(tokenizer_config: Dict) -> AutoTokenizer:
     """Initialize tokenizer based on configuration."""
@@ -152,11 +152,11 @@ def preprocess_transformer_dataset(
     n_processes: int = None
 ) -> Dict:
     """Preprocess a dataset for transformer models."""
-    # Ensure output directory exists
+    # Ensure output directory exists (in tae_datasets volume, clean/transformer dir)
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create dataset-specific output directory
-    output_path = os.path.join(output_dir, f"{dataset_name}_transformer")
+    # Create dataset-specific output directory in clean/transformer/
+    output_path = os.path.join(output_dir, dataset_name)
     if os.path.exists(output_path) and not force:
         logger.info(f"Processed dataset already exists at {output_path}. Use --force to overwrite.")
         
@@ -168,6 +168,7 @@ def preprocess_transformer_dataset(
             transformer_inputs = torch.load(inputs_path)
             transformer_targets = torch.load(targets_path)
             
+            # Load tokenizer from clean dataset directory
             tokenizer_path = os.path.join(output_path, "tokenizer")
             tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
             
@@ -182,7 +183,7 @@ def preprocess_transformer_dataset(
             logger.warning(f"Failed to load existing processed data: {e}")
             logger.info("Will reprocess dataset.")
     
-    # Check cache if enabled
+    # Check cache if enabled (in tae_cache volume)
     if cache_dir and use_cache:
         os.makedirs(cache_dir, exist_ok=True)
         config_hash = utils.hash_config(data_config['datasets'][dataset_name])
@@ -193,14 +194,14 @@ def preprocess_transformer_dataset(
             try:
                 result = utils.load_from_cache(cache_path)
                 
-                # Save to output directory as well
+                # Save to output directory as well (in tae_datasets volume)
                 os.makedirs(output_path, exist_ok=True)
                 
                 # Save inputs and targets
                 torch.save(result['transformer_inputs'], os.path.join(output_path, "inputs.pt"))
                 torch.save(result['transformer_targets'], os.path.join(output_path, "targets.pt"))
                 
-                # Save tokenizer
+                # Save tokenizer (to dataset-specific directory)
                 result['tokenizer'].save_pretrained(os.path.join(output_path, "tokenizer"))
                 
                 return result
@@ -216,8 +217,9 @@ def preprocess_transformer_dataset(
     tokenizer_config = data_config['tokenizers']['transformer']
     tokenizer = initialize_tokenizer(tokenizer_config)
     
-    # Load dataset
-    raw_dataset = utils.load_dataset(dataset_name, os.path.dirname(output_dir))
+    # Load dataset from raw directory (tae_datasets volume)
+    raw_dir = os.path.join("/app/mount/src/datasets/raw", dataset_name)
+    raw_dataset = utils.load_dataset(dataset_name, os.path.dirname(raw_dir))
     
     # Get texts and labels
     texts = raw_dataset['unsplit'][text_column]
@@ -240,8 +242,7 @@ def preprocess_transformer_dataset(
     # Process examples in parallel
     logger.info(f"Processing {len(items)} examples for {dataset_name}")
     
-    if n_processes is None:
-        n_processes = data_config.get('alignment', {}).get('parallel', {}).get('n_processes', 4)
+    if n_processes is None: n_processes = data_config.get('alignment', {}).get('parallel', {}).get('n_processes', 4)
     
     # Define error handler
     def error_handler(errors):
@@ -265,7 +266,7 @@ def preprocess_transformer_dataset(
     # Unpack results
     inputs, targets = zip(*results)
     
-    # Save processed data
+    # Save processed data (to tae_datasets volume, clean/transformer dir)
     logger.info(f"Saving processed data to {output_path}")
     os.makedirs(output_path, exist_ok=True)
     
@@ -273,7 +274,7 @@ def preprocess_transformer_dataset(
     torch.save(inputs, os.path.join(output_path, "inputs.pt"))
     torch.save(targets, os.path.join(output_path, "targets.pt"))
     
-    # Save tokenizer
+    # Save tokenizer (to dataset-specific directory)
     tokenizer.save_pretrained(os.path.join(output_path, "tokenizer"))
     
     # Prepare result dictionary
@@ -285,10 +286,10 @@ def preprocess_transformer_dataset(
         'transformer_targets': targets
     }
     
-    # Cache result if enabled
+    # Cache result if enabled (in tae_cache volume)
     if cache_dir and use_cache:
         logger.info(f"Caching processed data to {cache_path}")
         utils.save_to_cache(result, cache_path)
     
     logger.info(f"Dataset {dataset_name} processed successfully")
-    return result
+    return result 

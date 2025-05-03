@@ -18,7 +18,7 @@ from data_types import StaticInput, StaticTarget
 import processing_utils as utils
 
 # Setup logger
-logger = utils.setup_logger('preprocess_static')
+logger = utils.setup_logger('process_static')
 
 def train_sentencepiece_model(texts: List[str], tokenizer_config: Dict, output_dir: str) -> str:
     """Train a SentencePiece model on the dataset texts."""
@@ -254,16 +254,16 @@ def preprocess_static_dataset(
     n_processes: int = None
 ) -> None:
     """Preprocess dataset for static embedding models with token alignment."""
-    # Ensure output directory exists
+    # Ensure output directory exists (in tae_datasets volume, clean/static dir)
     os.makedirs(output_dir, exist_ok=True)
     
     # Set output path and check if exists
-    output_path = os.path.join(output_dir, f"{dataset_name}_static")
+    output_path = os.path.join(output_dir, dataset_name)
     if os.path.exists(output_path) and not force:
         logger.info(f"Processed dataset already exists at {output_path}. Use --force to overwrite.")
         return
     
-    # Check cache if enabled
+    # Check cache if enabled (in tae_cache volume)
     if cache_dir and use_cache:
         os.makedirs(cache_dir, exist_ok=True)
         config_hash = utils.hash_config(data_config['datasets'][dataset_name])
@@ -274,14 +274,14 @@ def preprocess_static_dataset(
             try:
                 cached_data = utils.load_from_cache(cache_path)
                 
-                # Save to output directory as well
+                # Save to output directory as well (in tae_datasets volume)
                 os.makedirs(output_path, exist_ok=True)
                 
                 # Save inputs and targets
                 torch.save(cached_data['static_inputs'], os.path.join(output_path, "inputs.pt"))
                 torch.save(cached_data['static_targets'], os.path.join(output_path, "targets.pt"))
                 
-                # Save SentencePiece model
+                # Save SentencePiece model (to dataset-specific directory)
                 sp_model_path = os.path.join(output_path, "sp_model.model")
                 os.makedirs(os.path.dirname(sp_model_path), exist_ok=True)
                 with open(sp_model_path, 'wb') as f:
@@ -318,7 +318,9 @@ def preprocess_static_dataset(
                     transformer_tokens_list.append(tokens)
     else:
         logger.info("Loading and cleaning dataset")
-        raw_dataset = utils.load_dataset(dataset_name, os.path.dirname(output_dir))
+        # Load dataset from raw directory (tae_datasets volume)
+        raw_dir = os.path.join("/app/mount/src/datasets/raw", dataset_name)
+        raw_dataset = utils.load_dataset(dataset_name, os.path.dirname(raw_dir))
         original_texts = raw_dataset['unsplit'][text_column]
         
         # Clean texts
@@ -330,10 +332,10 @@ def preprocess_static_dataset(
     tokenizer_config = data_config['tokenizers']['static']
     
     if sp_model is None:
-        # Try to load existing model or train new one
-        models_dir = os.path.join(output_dir, "models")
+        # Try to load existing model or train new one (in tae_models volume)
+        models_dir = "/app/mount/src/models/prep"
         os.makedirs(models_dir, exist_ok=True)
-        sp_model_path = os.path.join(models_dir, f"{tokenizer_config.get('model', 'spm_model')}.model")
+        sp_model_path = os.path.join(models_dir, f"{dataset_name}_{tokenizer_config.get('model', 'spm_model')}.model")
         
         if not os.path.exists(sp_model_path) or force:
             logger.info("Training new SentencePiece model")
@@ -404,20 +406,20 @@ def preprocess_static_dataset(
     
     inputs, targets = zip(*filtered_results)
     
-    # Save processed data
+    # Save processed data (to tae_datasets volume, clean/static dir)
     logger.info(f"Saving processed data to {output_path}")
     os.makedirs(output_path, exist_ok=True)
     
     torch.save(inputs, os.path.join(output_path, "inputs.pt"))
     torch.save(targets, os.path.join(output_path, "targets.pt"))
     
-    # Save SentencePiece model
+    # Save SentencePiece model (to dataset-specific directory)
     sp_model_path = os.path.join(output_path, "sp_model.model")
     os.makedirs(os.path.dirname(sp_model_path), exist_ok=True)
     with open(sp_model_path, 'wb') as f:
         f.write(sp_model.serialized_model_proto())
     
-    # Cache results if enabled
+    # Cache results if enabled (in tae_cache volume)
     if cache_dir and use_cache:
         cache_result = {
             'static_inputs': inputs,
@@ -428,4 +430,4 @@ def preprocess_static_dataset(
         logger.info(f"Caching processed data to {cache_path}")
         utils.save_to_cache(cache_result, cache_path)
     
-    logger.info(f"Dataset {dataset_name} processed successfully with {len(inputs)} valid examples")
+    logger.info(f"Dataset {dataset_name} processed successfully with {len(inputs)} valid examples") 

@@ -15,12 +15,36 @@ Options:
 import os
 import sys
 import argparse
+import yaml
 from pathlib import Path
 from datasets import load_dataset, DatasetDict, Dataset, concatenate_datasets
 from tqdm import tqdm
 
-# Define the dataset directory (assuming we're running in the Docker container)
+# Define the dataset directory (mounted from tae_datasets volume)
 DATASET_DIR = "/app/mount/src/datasets/raw"
+CONFIG_PATH = "/app/mount/src/configs/data_config.yaml"
+
+def load_config(config_path=CONFIG_PATH):
+    """Load data configuration from YAML file."""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        return config
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
+        return None
+
+def get_available_datasets(config):
+    """Get the list of datasets defined in the configuration."""
+    if not config or 'datasets' not in config:
+        return []
+    return list(config['datasets'].keys())
+
+def ensure_dataset_dirs(datasets):
+    """Ensure dataset directories exist in raw/ directory."""
+    for dataset_name in datasets:
+        dataset_path = os.path.join(DATASET_DIR, dataset_name)
+        os.makedirs(dataset_path, exist_ok=True)
 
 def parse_args():
     """Parse command line arguments."""
@@ -28,22 +52,28 @@ def parse_args():
     parser.add_argument("--force", action="store_true", help="Force overwrite existing datasets without confirmation")
     parser.add_argument("--gutenberg-only", action="store_true", help="Only process the gutenberg dataset")
     parser.add_argument("--emotion-only", action="store_true", help="Only process the emotion dataset")
+    parser.add_argument("--config", type=str, default=CONFIG_PATH, help="Path to data configuration file")
     return parser.parse_args()
 
 def check_existing_datasets(force=False):
     """Check if datasets already exist and ask for permission to overwrite."""
-    # Check if datasets already exist
-    gutenberg_exists = os.path.exists(os.path.join(DATASET_DIR, "gutenberg"))
-    emotion_exists = os.path.exists(os.path.join(DATASET_DIR, "emotion"))
-    
-    if gutenberg_exists or emotion_exists:
-        existing = []
-        if gutenberg_exists:
-            existing.append("gutenberg")
-        if emotion_exists:
-            existing.append("emotion")
+    # Load configuration to get all dataset names
+    config = load_config()
+    if not config:
+        print("Failed to load configuration. Cannot determine available datasets.")
+        return False
         
-        print(f"Found existing datasets: {', '.join(existing)}")
+    available_datasets = get_available_datasets(config)
+    
+    # Check if datasets already exist
+    existing_datasets = []
+    for dataset_name in available_datasets:
+        dataset_path = os.path.join(DATASET_DIR, dataset_name)
+        if os.path.exists(dataset_path) and os.path.isdir(dataset_path) and any(os.listdir(dataset_path)):
+            existing_datasets.append(dataset_name)
+    
+    if existing_datasets:
+        print(f"Found existing datasets: {', '.join(existing_datasets)}")
         
         if force:
             print("Force flag set. Overwriting existing datasets.")
@@ -115,6 +145,7 @@ def process_emotion_dataset():
 def save_dataset(dataset, name):
     """Save the processed dataset to the specified directory."""
     dataset_path = os.path.join(DATASET_DIR, name)
+    os.makedirs(dataset_path, exist_ok=True)
     print(f"Saving processed dataset to {dataset_path}")
     
     try:
@@ -128,8 +159,22 @@ def main():
     """Main function to download and process datasets."""
     args = parse_args()
     
-    # Directory is expected to exist already, no need to check or create
+    # Load configuration
+    config = load_config(args.config)
+    if not config:
+        print("Failed to load configuration. Exiting.")
+        return
     
+    # Get all datasets from configuration
+    all_datasets = get_available_datasets(config)
+    if not all_datasets:
+        print("No datasets defined in configuration.")
+        return
+    
+    # Ensure raw dataset directories exist
+    ensure_dataset_dirs(all_datasets)
+    
+    # Check for existing datasets
     print("Checking for existing datasets...")
     should_continue = check_existing_datasets(args.force)
     
@@ -138,8 +183,8 @@ def main():
         return
     
     # Determine which datasets to process
-    process_gutenberg = not args.emotion_only
-    process_emotion = not args.gutenberg_only
+    process_gutenberg = not args.emotion_only and "gutenberg" in all_datasets
+    process_emotion = not args.gutenberg_only and "emotion" in all_datasets
     
     # Process and save datasets
     if process_gutenberg:
@@ -162,8 +207,9 @@ def main():
     
     print("\nDataset import and processing complete.")
     print("Datasets available at:")
-    print(f"  - {os.path.join(DATASET_DIR, 'gutenberg')}")
-    print(f"  - {os.path.join(DATASET_DIR, 'emotion')}")
+    for dataset in all_datasets:
+        if (dataset == "gutenberg" and process_gutenberg) or (dataset == "emotion" and process_emotion):
+            print(f"  - {os.path.join(DATASET_DIR, dataset)}")
 
 if __name__ == "__main__":
     try:

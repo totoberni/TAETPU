@@ -76,6 +76,19 @@ echo "\$TOKEN" | sudo docker login -u oauth2accesstoken --password-stdin https:/
 # Clean up any existing container
 sudo docker rm -f $CONTAINER_NAME 2>/dev/null || true
 
+# Create Docker volumes if they don't exist
+for VOLUME_NAME in tae_datasets tae_cache tae_models; do
+    if ! sudo docker volume inspect \$VOLUME_NAME >/dev/null 2>&1; then
+        echo "Creating Docker volume: \$VOLUME_NAME"
+        sudo docker volume create \$VOLUME_NAME
+    else
+        echo "Docker volume \$VOLUME_NAME already exists"
+    fi
+done
+
+# Create necessary data directories on host
+sudo mkdir -p /app/mount/src
+
 # Pull the Docker image
 sudo docker pull $TPU_IMAGE_NAME
 
@@ -86,10 +99,32 @@ sudo docker run -d --name $CONTAINER_NAME \
     -p 5000:5000 -p 6006:6006 \
     -v /dev:/dev \
     -v /lib/libtpu.so:/lib/libtpu.so \
-    -v /app/mount:/app/mount \
+    -v /app/mount/src:/app/mount/src \
+    -v tae_datasets:/app/mount/src/datasets \
+    -v tae_cache:/app/mount/src/cache \
+    -v tae_models:/app/mount/src/models \
     -e PJRT_DEVICE=TPU \
     -e PROJECT_ID='${PROJECT_ID}' \
     $TPU_IMAGE_NAME
+
+# Verify that the container is running
+if ! sudo docker ps | grep -q "$CONTAINER_NAME"; then
+    echo "WARNING: Container failed to start. Checking logs..."
+    sudo docker logs $CONTAINER_NAME
+    exit 1
+fi
+
+# Wait for container to initialize
+echo "Waiting for container to initialize..."
+sleep 5
+
+# Verify directory structure in the container
+echo "Verifying directory structure in container..."
+sudo docker exec $CONTAINER_NAME ls -la /app/mount/src/datasets
+sudo docker exec $CONTAINER_NAME ls -la /app/mount/src/cache
+sudo docker exec $CONTAINER_NAME ls -la /app/mount/src/models
+
+echo "Container setup complete!"
 EOF
 
 # Copy and execute the setup script
