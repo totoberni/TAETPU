@@ -36,8 +36,15 @@ This repository contains a framework for conducting Transformer model ablation e
 │       └── teardown_tpu.sh       # Script to delete TPU VM
 └── src/                          # Source code for TPU experiments
     ├── configs/                  # Configuration files for experiments
-    └── data/                     # Data processing and management
-        └── data_import.py        # Script to download and process datasets
+    │   └── data_config.yaml      # Configuration for data preprocessing
+    ├── data/                     # Data processing and management
+    │   ├── data_import.py        # Script to download and process datasets
+    │   ├── data_types.py         # Core data structures for inputs/targets
+    │   ├── processing_utils.py   # Shared preprocessing utilities
+    │   ├── preprocess_transformer.py  # Transformer-specific preprocessing
+    │   ├── preprocess_static.py       # Static embedding preprocessing
+    │   └── task_generators.py         # Task-specific label generators
+    └── cache/                    # Cached preprocessing results
 ```
 
 ## 0. Requirements
@@ -137,23 +144,44 @@ Mount and run files on the TPU VM:
 
 ### 3.2 Working with Data
 
-The project includes a data import script for downloading and processing datasets:
+The project includes a comprehensive data processing pipeline:
 
 ```bash
-# Mount the data import script to TPU VM
-./infrastructure/mgt/mount.sh data/data_import.py
+# Mount data processing files to TPU VM
+./infrastructure/mgt/mount.sh --dir data
 
-# Run the data import script on TPU VM
+# Download and preprocess datasets
 ./infrastructure/mgt/run.sh data/data_import.py
 
-# Run with specific options
-./infrastructure/mgt/run.sh data/data_import.py --force --gutenberg-only
+# Run transformer preprocessing
+./infrastructure/mgt/run.sh data/preprocess_transformer.py --dataset all
+
+# Run static embedding preprocessing
+./infrastructure/mgt/run.sh data/preprocess_static.py --dataset all --transformer_dir /app/mount/src/datasets/processed
 ```
 
-The data import script supports the following options:
-- `--force`: Force overwrite existing datasets without confirmation
-- `--gutenberg-only`: Only process the gutenberg dataset
-- `--emotion-only`: Only process the emotion dataset
+#### Data Processing Pipeline Options
+
+The data preprocessing scripts support the following options:
+
+- **data_import.py**:
+  - `--force`: Force overwrite existing datasets without confirmation
+  - `--gutenberg-only`: Only process the gutenberg dataset
+  - `--emotion-only`: Only process the emotion dataset
+
+- **preprocess_transformer.py** / **preprocess_static.py**:
+  - `--dataset [name]`: Dataset to process ('gutenberg', 'emotion', or 'all')
+  - `--output_dir`: Directory for processed outputs
+  - `--cache_dir`: Directory for caching intermediate results
+  - `--force`: Force overwrite existing processed data
+  - `--disable_cache`: Disable caching of preprocessed data
+  - `--n_processes`: Number of parallel processes to use
+
+- **preprocess_static.py** (additional options):
+  - `--transformer_dir`: Directory with processed transformer data
+  - `--train_sentencepiece`: Train a new SentencePiece model
+
+Processed datasets are saved to the `/app/mount/src/datasets/processed` directory in the Docker container.
 
 ## 4. Teardown Resources
 

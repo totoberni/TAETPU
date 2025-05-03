@@ -1,4 +1,21 @@
- tokenizers:
+# Data preprocessing configuration
+
+# Global configuration for token alignment
+alignment:
+  min_quality_threshold: 0.5
+  word_boundary_tokens:
+    transformer: ["##", "Ġ", "▁"]  # Subword indicators for transformer tokenizers
+    static: ["▁"]                   # Subword indicators for SentencePiece
+  cache:
+    enabled: true
+    directory: "/app/mount/src/cache"
+    max_age_hours: 72  # Cache invalidation time
+  parallel:
+    n_processes: 4     # Number of parallel processes for preprocessing
+    chunk_size: 10     # Chunk size for parallel processing
+
+# Tokenizer configurations
+tokenizers:
   transformer:
     type: "wordpiece"
     pretrained_model_name_or_path: "bert-base-cased"
@@ -9,6 +26,8 @@
       cls: "[CLS]"
       sep: "[SEP]"
       mask: "[MASK]"
+    alignment_special_tokens: ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+
   static:
     type: "sentencepiece"
     model: "spm_model"
@@ -21,7 +40,22 @@
       cls: "<cls>"
       sep: "<sep>"
       mask: "<mask>"
+    alignment_special_tokens: ["<pad>", "<unk>", "<cls>", "<sep>", "<mask>"]
+    word2vec:
+      window_size: 2
+      context_type: "cbow"  # or "skipgram"
 
+# Batch processing configuration
+batch_processing:
+  batch_size: 128
+  shuffle: true
+  drop_last: false
+  prefetch_factor: 2
+  num_workers: 4
+  tpu_compatible: true
+  pin_memory: true
+
+# Task configurations
 tasks:
   mlm:
     type: "masking"
@@ -81,6 +115,7 @@ tasks:
       validation: ["silhouette", "task_clusters"]
       min_silhouette_score: 0.5
 
+# Dataset configurations
 datasets:
   gutenberg:
     name: "nbeerbower/gutenberg2-dpo"
@@ -109,6 +144,9 @@ datasets:
       remove_html: true
       normalize_unicode: true
       handle_numbers: true
+    memory_mapping:
+      enabled: true
+      directory: "/app/mount/src/memmap"
 
   emotion:
     name: "dair-ai/emotion"
@@ -139,3 +177,5 @@ datasets:
       remove_html: true
       normalize_unicode: true
       handle_numbers: true
+    memory_mapping:
+      enabled: false

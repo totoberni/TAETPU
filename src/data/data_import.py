@@ -20,7 +20,7 @@ from datasets import load_dataset, DatasetDict, Dataset, concatenate_datasets
 from tqdm import tqdm
 
 # Define the dataset directory (assuming we're running in the Docker container)
-DATASET_DIR = "/app/mount/src/datasets"
+DATASET_DIR = "/app/mount/src/datasets/raw"
 
 def parse_args():
     """Parse command line arguments."""
@@ -128,8 +128,7 @@ def main():
     """Main function to download and process datasets."""
     args = parse_args()
     
-    # Make sure the dataset directory exists
-    os.makedirs(DATASET_DIR, exist_ok=True)
+    # Directory is expected to exist already, no need to check or create
     
     print("Checking for existing datasets...")
     should_continue = check_existing_datasets(args.force)
