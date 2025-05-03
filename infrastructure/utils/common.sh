@@ -279,4 +279,72 @@ function generate_docker_cmd() {
     $EXTRA_MOUNTS \\
     $IMAGE_NAME \\
     $COMMAND"
+}
+
+# Function to detect and fix container name mismatch
+check_container_name_mismatch() {
+    local expected_name="${CONTAINER_NAME:-tae-tpu-container}"
+    local expected_tag="${CONTAINER_TAG:-latest}"
+    
+    # Check if the expected container exists
+    if ! docker ps -a --format "{{.Names}}" | grep -q "^${expected_name}$"; then
+        log_warning "Container '$expected_name' not found"
+        
+        # Check if any other container with a similar name exists
+        for container in $(docker ps -a --format "{{.Names}}"); do
+            if [[ "$container" == *"tpu"* || "$container" == *"transformer"* || "$container" == *"ablation"* ]]; then
+                log_warning "Found similar container: $container"
+                log "Creating an alias for container name mismatch..."
+                
+                # Get the image used by this container
+                local container_image=$(docker inspect --format='{{.Config.Image}}' "$container")
+                
+                # Tag the existing image with the expected name
+                docker tag "$container_image" "${expected_name}:${expected_tag}"
+                log_success "Created image alias: $container_image -> ${expected_name}:${expected_tag}"
+                
+                # If container is stopped, use a different approach
+                if [ "$(docker inspect -f '{{.State.Running}}' "$container")" = "false" ]; then
+                    log "Container $container is stopped. Committing current state and creating new container..."
+                    docker commit "$container" "${expected_name}:${expected_tag}"
+                    docker rename "$container" "${container}_old"
+                    docker run -d --name "${expected_name}" \
+                        --privileged \
+                        --network=host \
+                        -e PJRT_DEVICE=TPU \
+                        -v /dev:/dev \
+                        -v /lib/libtpu.so:/lib/libtpu.so \
+                        -v /usr/share/tpu/:/usr/share/tpu/ \
+                        "${expected_name}:${expected_tag}"
+                    log_success "Created new container with expected name: ${expected_name}"
+                else
+                    log_warning "Container $container is running. Please stop it before creating a new container with the expected name."
+                    log "As a temporary workaround, the image has been tagged with the expected name."
+                    log "You can use: docker tag $container_image ${expected_name}:${expected_tag}"
+                fi
+                return 0
+            fi
+        done
+        
+        # If no similar container found, check for similar images
+        for image in $(docker images --format "{{.Repository}}:{{.Tag}}"); do
+            if [[ "$image" == *"tpu"* || "$image" == *"transformer"* || "$image" == *"ablation"* ]]; then
+                log_warning "Found similar image: $image"
+                log "Creating an alias for image name mismatch..."
+                docker tag "$image" "${expected_name}:${expected_tag}"
+                log_success "Created image alias: $image -> ${expected_name}:${expected_tag}"
+                return 0
+            fi
+        done
+        
+        log_error "No similar container or image found to fix naming mismatch."
+        return 1
+    fi
+    
+    return 0
+}
+
+# Helper function for SCP to TPU VM
+vmscp() {
+    gcloud compute tpus tpu-vm scp "$1" "$TPU_NAME:$2" --zone="$TPU_ZONE"
 } 

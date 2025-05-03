@@ -1,12 +1,13 @@
 version: '3'
 services:
-  tpu_container:
+  transformer-ablation:
     build:
       context: ../..
       dockerfile: infrastructure/docker/Dockerfile
-    image: eu.gcr.io/${PROJECT_ID}/tae-tpu:v1
-    container_name: tae-tpu-container
+    image: ${IMAGE_NAME:-eu.gcr.io/${PROJECT_ID}/tae-tpu:v1}
+    container_name: ${CONTAINER_NAME:-tae-tpu-container}
     privileged: true
+    network_mode: "host"
     environment:
       # PyTorch/XLA TPU configuration
       - PJRT_DEVICE=TPU
@@ -17,12 +18,19 @@ services:
       - NEXT_PLUGGABLE_DEVICE_USE_C_API=true
       # Project variables
       - PROJECT_ID=${PROJECT_ID}
+      - EXPERIMENT_TYPE=${EXPERIMENT_TYPE:-base}
     volumes:
       # System volumes - essential for TPU access
       - /dev:/dev
       - /lib/libtpu.so:/lib/libtpu.so
-      # Host directory for source code
-      - /tmp/tae_src:/app/mount
+      - /usr/share/tpu/:/usr/share/tpu/
+      # Data volumes with proper separation
+      - ${HOST_SRC_DIR:-/tmp/tae_src}:/app/mount
+      - ${HOST_DATASETS_DIR:-./datasets}:/app/datasets
+      - ${HOST_MODELS_DIR:-./models}:/app/models
+      - ${HOST_CHECKPOINTS_DIR:-./checkpoints}:/app/checkpoints
+      - ${HOST_LOGS_DIR:-./logs}:/app/logs
+      - ${HOST_RESULTS_DIR:-./results}:/app/results
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount') else 1)"]
