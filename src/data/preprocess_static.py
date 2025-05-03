@@ -6,55 +6,19 @@ for static embedding models, leveraging transformer data where available.
 """
 
 import os
-import argparse
 import logging
 from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 import torch
-from datasets import load_from_disk
 import sentencepiece as spm
 from tqdm import tqdm
 
 # Import custom modules
 from data_types import StaticInput, StaticTarget
 import processing_utils as utils
-from data_import import check_dataset_exists
 
-# Constants
-CONFIG_PATH = "/app/mount/src/configs/data_config.yaml"
-DATASET_RAW_DIR = "/app/mount/src/datasets/raw"
-DATASET_PROCESSED_DIR = "/app/mount/src/datasets/processed"
-CACHE_DIR = "/app/mount/src/cache"
-SPM_MODEL_DIR = "/app/mount/src/models/sentencepiece"
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('preprocess_static')
-
-
-def parse_args():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Preprocess data for static embedding models")
-    parser.add_argument("--config", type=str, default=CONFIG_PATH, 
-                        help="Path to the data config YAML file")
-    parser.add_argument("--dataset", type=str, choices=["gutenberg", "emotion", "all"],
-                        default="all", help="Dataset to preprocess")
-    parser.add_argument("--output_dir", type=str, default=DATASET_PROCESSED_DIR,
-                        help="Output directory for processed datasets")
-    parser.add_argument("--cache_dir", type=str, default=CACHE_DIR,
-                        help="Cache directory for preprocessed data")
-    parser.add_argument("--transformer_dir", type=str, default=None,
-                        help="Directory with processed transformer data (if available)")
-    parser.add_argument("--force", action="store_true",
-                        help="Force overwrite existing processed data")
-    parser.add_argument("--disable_cache", action="store_true",
-                        help="Disable caching of preprocessed data")
-    parser.add_argument("--train_sentencepiece", action="store_true",
-                        help="Train a new SentencePiece model")
-    parser.add_argument("--n_processes", type=int, default=None,
-                        help="Number of processes for parallel processing")
-    return parser.parse_args()
-
+# Setup logger
+logger = utils.setup_logger('preprocess_static')
 
 def train_sentencepiece_model(texts: List[str], tokenizer_config: Dict, output_dir: str) -> str:
     """Train a SentencePiece model on the dataset texts."""
@@ -94,14 +58,12 @@ def train_sentencepiece_model(texts: List[str], tokenizer_config: Dict, output_d
     os.remove(temp_corpus_path)
     return f"{model_prefix}.model"
 
-
 def load_sentencepiece_model(model_path: str) -> spm.SentencePieceProcessor:
     """Load SentencePiece model."""
     logger.info(f"Loading SentencePiece model from {model_path}")
     sp_model = spm.SentencePieceProcessor()
     sp_model.load(model_path)
     return sp_model
-
 
 def tokenize_text_sp(texts: List[str], sp_model: spm.SentencePieceProcessor, max_length: int) -> Dict[str, Any]:
     """Tokenize texts using SentencePiece model."""
@@ -147,7 +109,6 @@ def tokenize_text_sp(texts: List[str], sp_model: spm.SentencePieceProcessor, max
         'attention_mask': np.array(attention_masks, dtype=np.int32),
         'tokens': sp_tokens_list
     }
-
 
 def generate_word2vec_inputs(
     token_ids: np.ndarray, 
@@ -199,8 +160,7 @@ def generate_word2vec_inputs(
         np.array(context_masks, dtype=np.int32)
     )
 
-
-def process_example(item: Dict[str, Any]) -> Tuple[Optional[StaticInput], Optional[StaticTarget]]:
+def process_static_example(item: Dict[str, Any]) -> Tuple[Optional[StaticInput], Optional[StaticTarget]]:
     """Process a single example to create static input and target."""
     sp_model = item['sp_model']
     text = item['text']
@@ -282,8 +242,7 @@ def process_example(item: Dict[str, Any]) -> Tuple[Optional[StaticInput], Option
     
     return static_input, static_target
 
-
-def preprocess_dataset(
+def preprocess_static_dataset(
     dataset_name: str,
     data_config: Dict,
     output_dir: str,
@@ -359,7 +318,7 @@ def preprocess_dataset(
                     transformer_tokens_list.append(tokens)
     else:
         logger.info("Loading and cleaning dataset")
-        raw_dataset = load_dataset(dataset_name)
+        raw_dataset = utils.load_dataset(dataset_name, os.path.dirname(output_dir))
         original_texts = raw_dataset['unsplit'][text_column]
         
         # Clean texts
@@ -372,15 +331,16 @@ def preprocess_dataset(
     
     if sp_model is None:
         # Try to load existing model or train new one
-        sp_model_path = os.path.join(SPM_MODEL_DIR, f"{tokenizer_config.get('model', 'spm_model')}.model")
+        models_dir = os.path.join(output_dir, "models")
+        os.makedirs(models_dir, exist_ok=True)
+        sp_model_path = os.path.join(models_dir, f"{tokenizer_config.get('model', 'spm_model')}.model")
         
         if not os.path.exists(sp_model_path) or force:
             logger.info("Training new SentencePiece model")
-            os.makedirs(SPM_MODEL_DIR, exist_ok=True)
             sp_model_path = train_sentencepiece_model(
                 clean_texts, 
                 tokenizer_config, 
-                SPM_MODEL_DIR
+                models_dir
             )
         
         sp_model = load_sentencepiece_model(sp_model_path)
@@ -429,7 +389,7 @@ def preprocess_dataset(
     }
     
     results = utils.process_in_parallel(
-        process_fn=process_example,
+        process_fn=process_static_example,
         items=items,
         config=parallel_config,
         error_handler=error_handler
@@ -469,101 +429,3 @@ def preprocess_dataset(
         utils.save_to_cache(cache_result, cache_path)
     
     logger.info(f"Dataset {dataset_name} processed successfully with {len(inputs)} valid examples")
-
-
-def main():
-    """Main function to preprocess datasets for static embedding models."""
-    args = parse_args()
-    
-    # Load configuration
-    data_config = utils.load_config(args.config)
-    
-    # Create SentencePiece model directory
-    os.makedirs(SPM_MODEL_DIR, exist_ok=True)
-    
-    # Initialize SentencePiece tokenizer if needed
-    sp_model = None
-    if not args.train_sentencepiece:
-        tokenizer_config = data_config['tokenizers']['static']
-        sp_model_path = os.path.join(SPM_MODEL_DIR, f"{tokenizer_config.get('model', 'spm_model')}.model")
-        
-        if os.path.exists(sp_model_path):
-            sp_model = load_sentencepiece_model(sp_model_path)
-    
-    # Determine which datasets to process
-    datasets_to_process = list(data_config['datasets'].keys()) if args.dataset == "all" else [args.dataset]
-    
-    # Set up cache directory
-    cache_dir = args.cache_dir if not args.disable_cache else None
-    
-    # Load transformer data if available
-    transformer_data = {}
-    
-    if args.transformer_dir:
-        logger.info(f"Loading transformer data from {args.transformer_dir}")
-        
-        for dataset_name in datasets_to_process:
-            # Check if cached transformer data exists
-            if cache_dir:
-                config_hash = utils.hash_config(data_config['datasets'][dataset_name])
-                cache_path = os.path.join(cache_dir, f"{dataset_name}_transformer_{config_hash}.pt")
-                
-                if utils.is_cache_valid(cache_path):
-                    logger.info(f"Loading cached transformer data for {dataset_name}")
-                    try:
-                        transformer_data[dataset_name] = utils.load_from_cache(cache_path)
-                        continue
-                    except Exception as e:
-                        logger.warning(f"Failed to load transformer cache: {e}")
-            
-            # Load from files if cache not available
-            dataset_transformer_dir = os.path.join(args.transformer_dir, f"{dataset_name}_transformer")
-            
-            if os.path.exists(dataset_transformer_dir):
-                inputs_path = os.path.join(dataset_transformer_dir, "inputs.pt")
-                targets_path = os.path.join(dataset_transformer_dir, "targets.pt")
-                tokenizer_path = os.path.join(dataset_transformer_dir, "tokenizer")
-                
-                if os.path.exists(inputs_path) and os.path.exists(targets_path) and os.path.exists(tokenizer_path):
-                    try:
-                        from transformers import AutoTokenizer
-                        
-                        transformer_inputs = torch.load(inputs_path)
-                        transformer_targets = torch.load(targets_path)
-                        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-                        
-                        clean_texts = [inp.metadata['original_text'] for inp in transformer_inputs]
-                        
-                        transformer_data[dataset_name] = {
-                            'clean_texts': clean_texts,
-                            'transformer_inputs': transformer_inputs,
-                            'transformer_targets': transformer_targets,
-                            'tokenizer': tokenizer
-                        }
-                        
-                        logger.info(f"Loaded transformer data for {dataset_name} with {len(clean_texts)} examples")
-                    except Exception as e:
-                        logger.error(f"Error loading transformer data: {e}")
-    
-    # Process each dataset
-    for dataset_name in datasets_to_process:
-        logger.info(f"Processing dataset: {dataset_name}")
-        
-        # Process dataset
-        preprocess_dataset(
-            dataset_name=dataset_name,
-            data_config=data_config,
-            output_dir=args.output_dir,
-            transformer_data=transformer_data.get(dataset_name),
-            sp_model=sp_model,
-            cache_dir=cache_dir,
-            force=args.force,
-            use_cache=not args.disable_cache,
-            n_processes=args.n_processes
-        )
-    
-    logger.info("Static embedding preprocessing complete")
-
-
-if __name__ == "__main__":
-    main()

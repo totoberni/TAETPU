@@ -6,62 +6,19 @@ It leverages shared utilities from processing_utils.py and data structures from 
 """
 
 import os
-import argparse
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 import torch
-from datasets import load_from_disk
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
 # Import custom modules
 from data_types import TransformerInput, TransformerTarget
 import processing_utils as utils
-from data_import import check_dataset_exists
 
-# Constants
-CONFIG_PATH = "/app/mount/src/configs/data_config.yaml"
-DATASET_RAW_DIR = "/app/mount/src/datasets/raw"
-DATASET_PROCESSED_DIR = "/app/mount/src/datasets/processed"
-CACHE_DIR = "/app/mount/src/cache"
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('preprocess_transformer')
-
-
-def parse_args():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Preprocess data for transformer models")
-    parser.add_argument("--config", type=str, default=CONFIG_PATH, 
-                        help="Path to the data config YAML file")
-    parser.add_argument("--dataset", type=str, choices=["gutenberg", "emotion", "all"],
-                        default="all", help="Dataset to preprocess")
-    parser.add_argument("--output_dir", type=str, default=DATASET_PROCESSED_DIR,
-                        help="Output directory for processed datasets")
-    parser.add_argument("--cache_dir", type=str, default=CACHE_DIR,
-                        help="Cache directory for preprocessed data")
-    parser.add_argument("--force", action="store_true",
-                        help="Force overwrite existing processed data")
-    parser.add_argument("--disable_cache", action="store_true",
-                        help="Disable caching of preprocessed data")
-    parser.add_argument("--n_processes", type=int, default=None,
-                        help="Number of processes for parallel processing")
-    return parser.parse_args()
-
-
-def load_dataset(dataset_name: str, raw_dir: str = DATASET_RAW_DIR) -> Any:
-    """Load dataset from disk, verifying it exists first."""
-    dataset_path = os.path.join(raw_dir, dataset_name)
-    
-    # Check if dataset exists
-    if not check_dataset_exists(dataset_name, raw_dir):
-        raise FileNotFoundError(f"Dataset '{dataset_name}' not found at {dataset_path}")
-    
-    logger.info(f"Loading dataset from {dataset_path}")
-    return load_from_disk(dataset_path)
-
+# Setup logger
+logger = utils.setup_logger('preprocess_transformer')
 
 def initialize_tokenizer(tokenizer_config: Dict) -> AutoTokenizer:
     """Initialize tokenizer based on configuration."""
@@ -81,7 +38,6 @@ def initialize_tokenizer(tokenizer_config: Dict) -> AutoTokenizer:
     except Exception as e:
         logger.error(f"Failed to initialize tokenizer: {e}")
         raise
-
 
 def tokenize_batch(texts: List[str], tokenizer: AutoTokenizer, max_length: int) -> Dict[str, np.ndarray]:
     """Tokenize a batch of texts using the transformer tokenizer."""
@@ -146,7 +102,6 @@ def tokenize_batch(texts: List[str], tokenizer: AutoTokenizer, max_length: int) 
     
     return result
 
-
 def process_example(item: Dict[str, Any], config: Dict) -> Tuple[TransformerInput, TransformerTarget]:
     """Process a single example to create transformer input and target."""
     tokenizer = item['tokenizer']
@@ -187,8 +142,7 @@ def process_example(item: Dict[str, Any], config: Dict) -> Tuple[TransformerInpu
     
     return transformer_input, transformer_target
 
-
-def preprocess_dataset(
+def preprocess_transformer_dataset(
     dataset_name: str,
     data_config: Dict,
     output_dir: str,
@@ -263,7 +217,7 @@ def preprocess_dataset(
     tokenizer = initialize_tokenizer(tokenizer_config)
     
     # Load dataset
-    raw_dataset = load_dataset(dataset_name)
+    raw_dataset = utils.load_dataset(dataset_name, os.path.dirname(output_dir))
     
     # Get texts and labels
     texts = raw_dataset['unsplit'][text_column]
@@ -338,39 +292,3 @@ def preprocess_dataset(
     
     logger.info(f"Dataset {dataset_name} processed successfully")
     return result
-
-
-def main():
-    """Main function to preprocess datasets for transformer models."""
-    args = parse_args()
-    
-    # Load configuration
-    data_config = utils.load_config(args.config)
-    
-    # Determine which datasets to process
-    datasets_to_process = list(data_config['datasets'].keys()) if args.dataset == "all" else [args.dataset]
-    
-    # Set up cache directory
-    cache_dir = args.cache_dir if not args.disable_cache else None
-    
-    # Process each dataset
-    processed_data = {}
-    for dataset_name in datasets_to_process:
-        logger.info(f"Processing dataset: {dataset_name}")
-        result = preprocess_dataset(
-            dataset_name=dataset_name,
-            data_config=data_config,
-            output_dir=args.output_dir,
-            cache_dir=cache_dir,
-            force=args.force,
-            use_cache=not args.disable_cache,
-            n_processes=args.n_processes
-        )
-        processed_data[dataset_name] = result
-    
-    logger.info("Transformer preprocessing complete")
-    return processed_data
-
-
-if __name__ == "__main__":
-    main()

@@ -39,11 +39,13 @@ This repository contains a framework for conducting Transformer model ablation e
     │   └── data_config.yaml      # Configuration for data preprocessing
     ├── data/                     # Data processing and management
     │   ├── data_import.py        # Script to download and process datasets
+    │   ├── data_pipeline.py      # Main entry point for data preprocessing
     │   ├── data_types.py         # Core data structures for inputs/targets
     │   ├── processing_utils.py   # Shared preprocessing utilities
     │   ├── preprocess_transformer.py  # Transformer-specific preprocessing
     │   ├── preprocess_static.py       # Static embedding preprocessing
-    │   └── task_generators.py         # Task-specific label generators
+    │   └── task_generators.py         # Task-specific label generators (TODO)
+    ├── models/                   # Model definitions and components
     └── cache/                    # Cached preprocessing results
 ```
 
@@ -151,37 +153,68 @@ The project includes a comprehensive data processing pipeline:
 ./infrastructure/mgt/mount.sh --dir data
 
 # Download and preprocess datasets
-./infrastructure/mgt/run.sh data/data_import.py
+./infrastructure/mgt/run.sh data/data_pipeline.py --start-stage download --end-stage download
 
-# Run transformer preprocessing
-./infrastructure/mgt/run.sh data/preprocess_transformer.py --dataset all
+# Run full preprocessing pipeline
+./infrastructure/mgt/run.sh data/data_pipeline.py --model all --dataset all
 
-# Run static embedding preprocessing
-./infrastructure/mgt/run.sh data/preprocess_static.py --dataset all --transformer_dir /app/mount/src/datasets/processed
+# Run transformer preprocessing only
+./infrastructure/mgt/run.sh data/data_pipeline.py --model transformer --dataset all
+
+# Run static embedding preprocessing only
+./infrastructure/mgt/run.sh data/data_pipeline.py --model static --dataset all
 ```
 
 #### Data Processing Pipeline Options
 
-The data preprocessing scripts support the following options:
+The data pipeline supports the following options:
 
-- **data_import.py**:
-  - `--force`: Force overwrite existing datasets without confirmation
-  - `--gutenberg-only`: Only process the gutenberg dataset
-  - `--emotion-only`: Only process the emotion dataset
+- **Model and Dataset Selection**:
+  - `--model [transformer|static|all]`: Select model type to process for
+  - `--dataset [gutenberg|emotion|all]`: Select dataset to process
 
-- **preprocess_transformer.py** / **preprocess_static.py**:
-  - `--dataset [name]`: Dataset to process ('gutenberg', 'emotion', or 'all')
-  - `--output_dir`: Directory for processed outputs
-  - `--cache_dir`: Directory for caching intermediate results
+- **Pipeline Control**:
+  - `--start-stage [download|tokenization|label_generation]`: Stage to start from
+  - `--end-stage [download|tokenization|label_generation|all]`: Stage to end at
   - `--force`: Force overwrite existing processed data
-  - `--disable_cache`: Disable caching of preprocessed data
-  - `--n_processes`: Number of parallel processes to use
+  - `--disable-cache`: Disable caching of preprocessed data
+  - `--n-processes N`: Number of parallel processes to use
 
-- **preprocess_static.py** (additional options):
-  - `--transformer_dir`: Directory with processed transformer data
-  - `--train_sentencepiece`: Train a new SentencePiece model
+- **Resource Configuration**:
+  - `--config PATH`: Path to data configuration YAML file
+  - `--output-dir DIR`: Directory for processed outputs
+  - `--cache-dir DIR`: Directory for caching intermediate results
+  - `--raw-dir DIR`: Directory with raw datasets
+
+- **Performance Options**:
+  - `--optimize-for-tpu`: Optimize preprocessing for TPU compatibility
+  - `--profile`: Enable performance profiling
+
+- **Dataset Viewing**:
+  - `--view`: View datasets instead of processing them
+  - `--dataset-type [raw|processed|auto]`: Type of datasets to view
+  - `--examples N`: Number of examples to show (default: 3)
+  - `--detailed`: Show detailed information about examples
 
 Processed datasets are saved to the `/app/mount/src/datasets/processed` directory in the Docker container.
+
+### 3.3 Viewing Datasets
+
+You can view the raw or processed datasets:
+
+```bash
+# View raw datasets
+./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type raw
+
+# View processed datasets
+./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type processed
+
+# View only transformer datasets with detailed information
+./infrastructure/mgt/run.sh data/data_pipeline.py --view --model transformer --detailed
+
+# View a specific dataset
+./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset gutenberg
+```
 
 ## 4. Teardown Resources
 
