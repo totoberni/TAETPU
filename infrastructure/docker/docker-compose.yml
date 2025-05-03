@@ -10,22 +10,23 @@ services:
     environment:
       # PyTorch/XLA TPU configuration
       - PJRT_DEVICE=TPU
+      - XLA_USE_BF16=1
+      - TPU_NAME=local
+      - TPU_LOAD_LIBRARY=0
+      - TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so
+      - NEXT_PLUGGABLE_DEVICE_USE_C_API=true
       # Project variables
       - PROJECT_ID=${PROJECT_ID}
     volumes:
       # System volumes - essential for TPU access
       - /dev:/dev
       - /lib/libtpu.so:/lib/libtpu.so
-      # Authentication - create keys directory at runtime
-      - ${PWD}/config/${SERVICE_ACCOUNT_JSON}:/app/service-account.json:ro
-      # Application volume - mount the entire src directory structure
-      - ${PWD}/src:/app/mount/src
+      # Host directory for source code
+      - /tmp/tae_src:/app/mount
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount/src') else 1)"]
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 5s
-
-# No named volumes defined in this alternative configuration 

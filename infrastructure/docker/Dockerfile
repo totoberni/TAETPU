@@ -44,10 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create base directory
-RUN mkdir -p /app/mount/src
+# Create the base mount directory only
+RUN mkdir -p /app/mount && chmod -R 777 /app/mount
 
-# Health check for mount verification
+# Health check to verify mount directory existence
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD python -c "import os; exit(0 if os.path.isdir('/app/mount') else 1)"
 

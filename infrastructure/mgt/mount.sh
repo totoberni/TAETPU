@@ -5,6 +5,7 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SRC_DIR="$PROJECT_DIR/src"
+MOUNT_DIR="/tmp/tae_src"
 
 # --- Import common functions ---
 source "$PROJECT_DIR/infrastructure/utils/common.sh"
@@ -26,7 +27,7 @@ else
         ;;
       -h|--help)
         echo "Usage: $0 [--all] [--dir directory] [file1.py file2.py ...]"
-        echo "Mount source code to TPU VM."
+        echo "Mount source code to Docker container volume."
         exit 0
         ;;
       *) SPECIFIC_FILES+=("$1"); shift ;;
@@ -36,90 +37,115 @@ fi
 
 # --- Load environment variables ---
 source "$PROJECT_DIR/config/.env"
-check_env_vars "PROJECT_ID" "TPU_ZONE" "TPU_NAME" || exit 1
+check_env_vars "PROJECT_ID" || exit 1
 
-# --- Check and prepare directories ---
-log_section "Preparing Mount Environment"
-log "Checking mount directory structure on TPU VM"
-# Check if mount directories exist, create only if needed
-vmssh "if [ ! -d /app/mount/src ]; then 
-  sudo mkdir -p /app/mount/src
-  sudo chmod 777 -R /app/mount
-fi"
-# Create temporary directory for file transfers
-vmssh "mkdir -p /tmp/app/mount"
+# --- Check Docker container status ---
+log_section "Docker Container Management"
+CONTAINER_NAME="tae-tpu-container"
+
+log "Checking if Docker container is running..."
+CONTAINER_ID=$(docker ps -q -f name=$CONTAINER_NAME)
+
+if [ -z "$CONTAINER_ID" ]; then
+  log_warning "Container $CONTAINER_NAME is not running"
+  
+  # Check if container exists but is stopped
+  STOPPED_ID=$(docker ps -aq -f name=$CONTAINER_NAME)
+  if [ -n "$STOPPED_ID" ]; then
+    log "Container exists but is stopped. Starting container..."
+    docker start $CONTAINER_NAME
+  else
+    log "Creating new container with mounted volume..."
+    
+    # Make sure the mount directory exists
+    mkdir -p $MOUNT_DIR
+    
+    # Create the container with the source directory mounted
+    docker run -d \
+      --name $CONTAINER_NAME \
+      --privileged \
+      -e PJRT_DEVICE=TPU \
+      -e XLA_USE_BF16=1 \
+      -e TPU_NAME=local \
+      -e TPU_LOAD_LIBRARY=0 \
+      -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so \
+      -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \
+      -v /dev:/dev \
+      -v /lib/libtpu.so:/lib/libtpu.so \
+      -v $MOUNT_DIR:/app/mount \
+      eu.gcr.io/${PROJECT_ID}/tae-tpu:v1
+  fi
+  
+  # Check again to confirm container is running
+  CONTAINER_ID=$(docker ps -q -f name=$CONTAINER_NAME)
+  if [ -z "$CONTAINER_ID" ]; then
+    log_error "Failed to start Docker container"
+    exit 1
+  fi
+fi
+
+log_success "Container $CONTAINER_NAME is running with ID: $CONTAINER_ID"
+
+# --- Prepare mount directory ---
+log "Preparing transfer directory..."
+mkdir -p $MOUNT_DIR
+chmod 777 $MOUNT_DIR
+
+# --- Create the basic directory structure in container ---
+log "Creating basic directory structure in container..."
+docker exec $CONTAINER_NAME mkdir -p /app/mount/src
 
 # --- Mount operations ---
 if [[ "$MOUNT_ALL" == "true" ]]; then
-  log_section "All Files Mount"
-  log "Mounting all files from $SRC_DIR to /app/mount/src"
+  log_section "Mounting All Source Files"
+  log "Mounting entire src directory to Docker container"
   
-  # Clear existing files
-  vmssh "sudo rm -rf /app/mount/src/*"
-  vmssh "rm -rf /tmp/app/mount/*"
+  # Clean the mount directory first to ensure a fresh start
+  rm -rf "$MOUNT_DIR"/*
   
-  # Copy all source files to temp directory first
-  gcloud compute tpus tpu-vm scp --recurse "$SRC_DIR/"* "$TPU_NAME":"/tmp/app/mount/" \
-      --zone="$TPU_ZONE" \
-      --project="$PROJECT_ID" \
-      --worker=all
+  # Recursively copy all files from src directory with their full structure
+  cp -r "$SRC_DIR"/* "$MOUNT_DIR/"
   
-  # Move files from temp to final destination
-  vmssh "sudo cp -r /tmp/app/mount/* /app/mount/src/ && rm -rf /tmp/app/mount/*"
-      
-  log_success "All files mounted to /app/mount/src"
+  log_success "All files transferred to mount directory"
+  
 else
-  # Mount specific files and directories
+  # Handle specific files
   if [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
-    log_section "Specific Files Mount"
-    log "Mounting specific files to TPU VM"
+    log_section "Mounting Specific Files"
     
     for file in "${SPECIFIC_FILES[@]}"; do
       src_file="$SRC_DIR/$file"
       if [ -f "$src_file" ]; then
-        # Create parent directory if needed
+        # Create parent directory in mount dir
         parent_dir=$(dirname "$file")
-        if [ "$parent_dir" != "." ]; then
-          vmssh "mkdir -p /tmp/app/mount/$parent_dir"
-        fi
+        mkdir -p "$MOUNT_DIR/$parent_dir"
         
-        # Copy file to temp directory
-        gcloud compute tpus tpu-vm scp "$src_file" "$TPU_NAME":"/tmp/app/mount/$file" \
-            --zone="$TPU_ZONE" \
-            --project="$PROJECT_ID" \
-            --worker=all
-        
-        # Create destination directory and move file
-        vmssh "sudo mkdir -p /app/mount/src/$parent_dir && sudo cp /tmp/app/mount/$file /app/mount/src/$file"
-            
-        log "Mounted $file to /app/mount/src/$file"
+        # Copy the file
+        log "Copying $file to mount directory..."
+        cp "$src_file" "$MOUNT_DIR/$file"
+          
+        log_success "Copied $file to mount directory"
       else
         log_warning "File $file not found in $SRC_DIR"
       fi
     done
   fi
   
-  # Mount directories
+  # Handle specific directories
   if [ ${#DIRECTORIES[@]} -gt 0 ]; then
-    log_section "Directory Mount"
-    log "Mounting directories to TPU VM"
+    log_section "Mounting Specific Directories"
     
     for dir in "${DIRECTORIES[@]}"; do
       src_dir="$SRC_DIR/$dir"
       if [ -d "$src_dir" ]; then
-        # Create temp directory
-        vmssh "mkdir -p /tmp/app/mount/$dir"
+        # Create directory in mount dir
+        mkdir -p "$MOUNT_DIR/$dir"
         
-        # Copy directory contents to temp
-        gcloud compute tpus tpu-vm scp --recurse "$src_dir/"* "$TPU_NAME":"/tmp/app/mount/$dir/" \
-            --zone="$TPU_ZONE" \
-            --project="$PROJECT_ID" \
-            --worker=all
-        
-        # Create destination directory and move files
-        vmssh "sudo mkdir -p /app/mount/src/$dir && sudo cp -r /tmp/app/mount/$dir/* /app/mount/src/$dir/"
-            
-        log_success "Mounted directory $dir to /app/mount/src/$dir"
+        # Copy directory contents
+        log "Copying directory $dir to mount directory..."
+        cp -r "$src_dir/"* "$MOUNT_DIR/$dir/"
+          
+        log_success "Copied directory $dir to mount directory"
       else
         log_warning "Directory $dir not found in $SRC_DIR"
       fi
@@ -128,35 +154,35 @@ else
   
   # If nothing specified, mount all Python files
   if [ ${#SPECIFIC_FILES[@]} -eq 0 ] && [ ${#DIRECTORIES[@]} -eq 0 ]; then
-    log_section "Default Python Files Mount"
-    log "No specific files/directories specified, mounting all Python files"
+    log_section "Mounting All Python Files"
+    log "Mounting all Python files to Docker container"
     
-    find "$SRC_DIR" -name "*.py" | while read -r py_file; do
+    # Find all Python files
+    PYTHON_FILES=$(find "$SRC_DIR" -name "*.py")
+    
+    for py_file in $PYTHON_FILES; do
+      # Get relative path
       rel_path=${py_file#"$SRC_DIR/"}
       parent_dir=$(dirname "$rel_path")
       
-      # Create temp and destination directories
-      vmssh "mkdir -p /tmp/app/mount/$parent_dir"
-      vmssh "sudo mkdir -p /app/mount/src/$parent_dir"
+      # Create parent directory in mount dir
+      mkdir -p "$MOUNT_DIR/$parent_dir"
       
-      # Copy to temp and move to destination
-      gcloud compute tpus tpu-vm scp "$py_file" "$TPU_NAME":"/tmp/app/mount/$rel_path" \
-          --zone="$TPU_ZONE" \
-          --project="$PROJECT_ID" \
-          --worker=all
-      
-      vmssh "sudo cp /tmp/app/mount/$rel_path /app/mount/src/$rel_path"
+      # Copy the file
+      log "Copying $rel_path to mount directory..."
+      cp "$py_file" "$MOUNT_DIR/$rel_path"
     done
     
-    log_success "All Python files mounted to /app/mount/src"
+    log_success "All Python files copied to mount directory"
   fi
 fi
 
-# Clean up temp directory
-vmssh "sudo rm -rf /tmp/app/mount/*"
+# --- Verify files are accessible from container ---
+log_section "Verifying Docker Container Access"
+docker exec $CONTAINER_NAME ls -la /app/mount
 
-# Ensure correct permissions
-vmssh "sudo chmod -R 777 /app/mount/src"
+# --- Set appropriate permissions ---
+docker exec $CONTAINER_NAME chmod -R 777 /app/mount
 
-log_success "Files mounted successfully at /app/mount/src in the container"
+log_success "Files successfully mounted to Docker container at /app/mount"
 exit 0

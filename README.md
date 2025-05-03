@@ -24,9 +24,9 @@ This repository contains a framework for conducting Transformer model ablation e
 │   │   ├── entrypoint.sh         # Container entry point script
 │   │   └── requirements.txt      # Python dependencies for Docker
 │   ├── mgt/                      # Management scripts for Docker operations
-│   │   ├── mount.sh              # Script to mount files to Docker Image
-│   │   ├── run.sh                # Script to execute files through Docker Image
-│   │   └── scrap.sh              # Script to remove files from Docker Image
+│   │   ├── mount.sh              # Script to mount files to Docker container
+│   │   ├── run.sh                # Script to execute files in Docker container
+│   │   └── scrap.sh              # Script to remove files from Docker container
 │   ├── utils/                    # Shared utilities
 │   │   ├── common.sh             # Common bash utilities and functions
 │   │   ├── monitors/             # Monitoring utilities
@@ -41,9 +41,10 @@ This repository contains a framework for conducting Transformer model ablation e
     │   ├── data_import.py        # Script to download and process datasets
     │   ├── data_pipeline.py      # Main entry point for data preprocessing
     │   ├── data_types.py         # Core data structures for inputs/targets
-    │   ├── processing_utils.py   # Shared preprocessing utilities
+    │   ├── process_utils.py      # Shared preprocessing utilities
     │   ├── process_transformer.py # Transformer-specific preprocessing
-    │   └── process_static.py     # Static embedding preprocessing
+    │   ├── process_static.py     # Static embedding preprocessing
+    │   └── validate_docker.py    # Validation script for Docker environment
     ├── models/                   # Model definitions and components
     └── cache/                    # Cached preprocessing results
 ```
@@ -128,33 +129,53 @@ Create the TPU VM, pull the Docker image, and start the container:
 
 ## 3. Development Workflow
 
-### 3.1 Working with TPU VM
+### 3.1 Working with Docker Container
 
-Mount and run files on the TPU VM:
+Mount, run, and manage files in the Docker container:
 
 ```bash
-# Mount files to TPU VM
+# Mount files to Docker container
 ./infrastructure/mgt/mount.sh example.py
 
-# Run a file on TPU VM
+# Run a file in Docker container
 ./infrastructure/mgt/run.sh example.py
 
-# Clean up files from TPU VM (preserves critical directory structure)
+# Clean up files from Docker container (preserves critical directory structure)
 ./infrastructure/mgt/scrap.sh --all
 ```
 
-The management scripts now intelligently handle the required directory structure:
+The management scripts now use Docker-only commands and handle the required directory structure:
 
-- `mount.sh` - Creates/maintains directories when mounting files
-- `run.sh` - Validates directories before running data processing scripts
+- `mount.sh` - Copies files to a mount directory and maintains container directories
+- `run.sh` - Executes Python scripts inside the container with proper paths
 - `scrap.sh` - Removes files while preserving essential directory structure
 
-### 3.2 Working with Data
+### 3.2 Validating the Docker Environment
+
+Before running experiments, you can validate that the Docker environment is properly set up:
+
+```bash
+# Mount the validation script
+./infrastructure/mgt/mount.sh data/validate_docker.py
+
+# Run the validation script
+./infrastructure/mgt/run.sh data/validate_docker.py
+```
+
+The validation script checks:
+- Access to all required directories
+- Import of required Python modules
+- Basic data operations with PyTorch and NumPy
+- File I/O operations in mounted directories
+- Proper functioning of the data_types module
+- TPU availability (if running on TPU hardware)
+
+### 3.3 Working with Data
 
 The project includes a comprehensive data processing pipeline:
 
 ```bash
-# Mount data processing files to TPU VM
+# Mount data processing files to Docker container
 ./infrastructure/mgt/mount.sh --dir data
 
 # Download and preprocess datasets
@@ -197,13 +218,13 @@ The data pipeline supports the following options:
 
 - **Dataset Viewing**:
   - `--view`: View datasets instead of processing them
-  - `--dataset-type [raw|processed|auto]`: Type of datasets to view
+  - `--dataset-type [raw|clean|auto]`: Type of datasets to view
   - `--examples N`: Number of examples to show (default: 3)
   - `--detailed`: Show detailed information about examples
 
 Processed datasets are saved to the `/app/mount/src/datasets/clean` directory in the Docker container.
 
-### 3.3 Viewing Datasets
+### 3.4 Viewing Datasets
 
 You can view the raw or processed datasets:
 
@@ -212,13 +233,30 @@ You can view the raw or processed datasets:
 ./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type raw
 
 # View processed datasets
-./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type processed
+./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type clean
 
 # View only transformer datasets with detailed information
 ./infrastructure/mgt/run.sh data/data_pipeline.py --view --model transformer --detailed
 
 # View a specific dataset
 ./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset gutenberg
+```
+
+### 3.5 Directory Structure in Docker Container
+
+All data processing happens within the Docker container with the following directory structure:
+
+```
+/app/mount/src/
+├── configs/                # Configuration files
+├── datasets/               # Dataset files
+│   ├── raw/                # Raw downloaded datasets
+│   └── clean/              # Processed datasets
+│       ├── transformer/    # Transformer model datasets
+│       └── static/         # Static embedding datasets
+├── cache/prep/             # Preprocessing cache
+├── models/prep/            # Preprocessing models (e.g., SentencePiece)
+└── data/                   # Data processing scripts
 ```
 
 ## 4. Teardown Resources
