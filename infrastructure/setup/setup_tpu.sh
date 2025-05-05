@@ -20,11 +20,18 @@ gcloud compute tpus tpu-vm create ${TPU_NAME} \
   --version=${RUNTIME_VERSION} \
   --project=${PROJECT_ID}
 
-# Copy service account key to TPU VM
-log "Copying service account key to TPU VM"
+# Copy necessary files to TPU VM
+log "Copying configuration files to TPU VM"
 gcloud compute tpus tpu-vm scp \
   "config/${SERVICE_ACCOUNT_JSON}" \
   "${TPU_NAME}:~/${SERVICE_ACCOUNT_JSON}" \
+  --zone=${TPU_ZONE} \
+  --project=${PROJECT_ID}
+
+# Copy docker-compose.yml to TPU VM for consistent container setup
+gcloud compute tpus tpu-vm scp \
+  "infrastructure/docker/docker-compose.yml" \
+  "${TPU_NAME}:~/docker-compose.yml" \
   --zone=${TPU_ZONE} \
   --project=${PROJECT_ID}
 
@@ -46,13 +53,14 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     # Create mount directory
     mkdir -p ~/${HOST_MOUNT_DIR#./}
     
-    # Run the Docker container with minimal flags
+    # Set environment variables for docker-compose
+    export IMAGE_NAME=${DOCKER_IMAGE}
+    export CONTAINER_NAME=${CONTAINER_NAME}
+    
+    # Simple docker run with minimal flags - container configuration is in the image and docker-compose
     docker run -d \
       --name ${CONTAINER_NAME} \
       --privileged \
-      --net=host \
-      -e PJRT_DEVICE=${PJRT_DEVICE} \
-      -e PROJECT_ID=${PROJECT_ID} \
       -v ~/${HOST_MOUNT_DIR#./}:${CONTAINER_MOUNT_DIR} \
       ${DOCKER_IMAGE}:${CONTAINER_TAG}
     
