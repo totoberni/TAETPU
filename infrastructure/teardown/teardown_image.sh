@@ -11,78 +11,95 @@ source "$PROJECT_DIR/infrastructure/utils/common.sh"
 init_script 'Docker Image Teardown'
 
 # Load environment variables
-log "Loading environment variables..."
 ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-check_env_vars "PROJECT_ID" || exit 1
-
-# Set up Docker directory path
-DOCKER_DIR="$PROJECT_DIR/infrastructure/docker"
-DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
-
-# Extract image details from docker-compose.yml if available
-if [[ -f "$DOCKER_COMPOSE_FILE" ]]; then
-    # Extract the full image reference including tag
-    FULL_IMAGE_REF=$(grep -o 'image: eu.gcr.io/${PROJECT_ID}/[^[:space:]]*' "$DOCKER_COMPOSE_FILE" | sed 's/image: //')
-    # Replace environment variables
-    FULL_IMAGE_REF=$(eval echo "$FULL_IMAGE_REF")
-    
-    # Parse repository name (without tag)
-    REPO_NAME=$(echo "$FULL_IMAGE_REF" | cut -d':' -f1)
-    log_success "Found repository in docker-compose.yml: $REPO_NAME"
-else
-    # Fallback to default if docker-compose.yml doesn't exist
-    REPO_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu"
-    log_warning "docker-compose.yml not found. Using default repository: $REPO_NAME"
-fi
-
-# Set up authentication
-setup_auth
+check_env_vars "PROJECT_ID" "IMAGE_NAME" || exit 1
 
 # Display configuration
 log_section "Configuration"
-log "Project ID: $PROJECT_ID"
-log "Repository: $REPO_NAME"
+display_config "PROJECT_ID" "IMAGE_NAME"
 
-# Function to delete by tag
-delete_by_tag() {
-    log "Fetching tags for repository $REPO_NAME..."
-    TAGS=$(gcloud container images list-tags "$REPO_NAME" --format="value(tags)" 2>/dev/null || echo "")
+# Delete all tagged images
+delete_tagged_images() {
+    log_section "Deleting Tagged Images"
+    
+    # Get all tags first
+    TAGS=$(gcloud container images list-tags "$IMAGE_NAME" --filter='tags:*' --format='get(tags)' --limit=unlimited)
     
     if [[ -z "$TAGS" ]]; then
-        log_warning "No tags found for $REPO_NAME"
+        log_success "No tagged images found"
+        return 0
+    fi
+    
+    # Display tags to be deleted
+    log "The following tags will be deleted:"
+    for TAG in $TAGS; do
+        log "  - $IMAGE_NAME:$TAG"
+    done
+    
+    if ! confirm_action "Proceed with deletion of all tagged images?" "n"; then
+        log "Deletion of tagged images cancelled by user"
         return 1
     fi
     
-    log_success "Found tags: $TAGS"
-    
-    # Delete each tag
-    for tag in $TAGS; do
-        log "Deleting tag: ${REPO_NAME}:${tag}"
-        if gcloud container images delete "${REPO_NAME}:${tag}" --quiet --force-delete-tags; then
-            log_success "Successfully deleted tag $tag"
+    # Delete each tagged image
+    for TAG in $TAGS; do
+        log "Deleting $IMAGE_NAME:$TAG"
+        gcloud container images delete "$IMAGE_NAME:$TAG" --quiet --force-delete-tags
+        if [[ $? -eq 0 ]]; then
+            log_success "Successfully deleted $IMAGE_NAME:$TAG"
         else
-            log_warning "Failed to delete tag $tag"
+            log_error "Failed to delete $IMAGE_NAME:$TAG"
         fi
     done
     
+    log_success "Tagged image deletion completed"
     return 0
 }
 
-# Optionally, delete by digest (sha256:...)
-# gcloud container images list-tags eu.gcr.io/infra-tempo-401122/tae-tpu --filter='-tags:*' --format='get(digest)' --limit=unlimited | xargs -I{} gcloud container images delete "eu.gcr.io/infra-tempo-401122/tae-tpu@{}"
+# Delete all untagged images by digest
 delete_by_digest() {
-    log "Deleting untagged images..."
+    log_section "Deleting Untagged Images"
     
     while true; do
-        # Run the deletion command directly without capturing output
-        log "Running deletion command for untagged images..."
-        gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited | xargs -I{} gcloud container images delete "${REPO_NAME}@{}" --quiet --force-delete-tags
+        # List all untagged images and extract only the digest part
+        log "Finding untagged images..."
+        UNTAGGED_DIGESTS=$(gcloud container images list-tags "$IMAGE_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited)
+        
+        if [[ -z "$UNTAGGED_DIGESTS" ]]; then
+            log_success "No untagged images found"
+            return 0
+        fi
+        
+        # Count how many untagged images we found
+        DIGEST_COUNT=$(echo "$UNTAGGED_DIGESTS" | wc -l)
+        log "Found $DIGEST_COUNT untagged images"
+        
+        if ! confirm_action "Proceed with deletion of $DIGEST_COUNT untagged images?" "y"; then
+            log "Deletion of untagged images cancelled by user"
+            return 1
+        fi
+        
+        # Delete each untagged image individually to better handle errors
+        for FULL_DIGEST in $UNTAGGED_DIGESTS; do
+            # Extract only the hash part without the "sha256:" prefix
+            DIGEST_HASH=$(echo "$FULL_DIGEST" | sed 's/sha256://g')
+            log "Deleting untagged image with digest: $DIGEST_HASH"
+            
+            # Use the correct format: IMAGE_NAME@sha256:HASH
+            gcloud container images delete "${IMAGE_NAME}@sha256:${DIGEST_HASH}" --quiet --force-delete-tags
+            
+            if [[ $? -eq 0 ]]; then
+                log_success "Successfully deleted image with digest: $DIGEST_HASH"
+            else
+                log_error "Failed to delete image with digest: $DIGEST_HASH"
+            fi
+        done
         
         # Check if any untagged images remain
-        REMAINING=$(gcloud container images list-tags "$REPO_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited)
+        REMAINING=$(gcloud container images list-tags "$IMAGE_NAME" --filter='-tags:*' --format='get(digest)' --limit=unlimited)
         
         if [[ -z "$REMAINING" ]]; then
             log_success "Successfully deleted all untagged images"
@@ -97,71 +114,21 @@ delete_by_digest() {
     done
 }
 
-# Check if the repository exists
-log "Checking for Docker repository in Container Registry..."
-if ! gcloud container images list --repository="$(dirname "$REPO_NAME")" --format="value(name)" 2>/dev/null | grep -q "$(basename "$REPO_NAME")"; then
-    log_warning "Repository not found in GCR. Nothing to delete."
-    exit 0
+# Setup auth before running operations
+setup_auth
+
+# Check if the image exists
+if ! gcloud container images describe "$IMAGE_NAME" &>/dev/null; then
+    log_error "Image $IMAGE_NAME does not exist"
+    exit 1
 fi
 
-log_success "Found repository $REPO_NAME"
+# First delete tagged images
+delete_tagged_images
 
-# Confirm deletion with user
-if ! confirm_delete "repository $REPO_NAME"; then
-    log "Repository deletion cancelled by user"
-    exit 0
-fi
+# Then delete untagged images
+delete_by_digest
 
-# Attempt repository deletion by deleting tags first
-log "Attempting to delete repository by removing all tags..."
-delete_by_tag || log_warning "Tag deletion method failed"
-
-# Check if repository still exists
-if gcloud container images list --repository="$(dirname "$REPO_NAME")" --format="value(name)" 2>/dev/null | grep -q "$(basename "$REPO_NAME")"; then
-    log_warning "Repository still exists. Trying to delete by digest..."
-    
-    # Try deletion by digest
-    delete_by_digest || log_warning "Digest deletion method also failed"
-    
-    # Final check
-    if gcloud container images list --repository="$(dirname "$REPO_NAME")" --format="value(name)" 2>/dev/null | grep -q "$(basename "$REPO_NAME")"; then
-        log_warning "Repository could not be completely removed"
-    else
-        log_success "Repository successfully removed from GCR"
-    fi
-else
-    log_success "Repository successfully removed from GCR"
-fi
-
-# Clean up local Docker resources
-log_section "Local Docker Cleanup"
-
-# Get the repository base name without domain
-REPO_BASE_NAME=$(basename "$REPO_NAME")
-
-# Remove local images
-log "Checking for local Docker images..."
-LOCAL_IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "$REPO_BASE_NAME" 2>/dev/null || echo "")
-
-if [[ -n "$LOCAL_IMAGES" ]]; then
-    log "Found local images: $LOCAL_IMAGES"
-    
-    if confirm_delete "local Docker images"; then
-        # Remove each image
-        for img in $LOCAL_IMAGES; do
-            docker rmi -f "$img" 2>/dev/null
-        done
-        log_success "Local images removed"
-    fi
-else
-    log "No local Docker images found for $REPO_BASE_NAME"
-fi
-
-# Offer Docker system prune
-if confirm_action "Run Docker system prune?" "n"; then
-    docker system prune -f
-    log_success "Docker system pruned"
-fi
-
-log_success "Docker image teardown completed"
+log_success "Docker image teardown completed for $IMAGE_NAME"
+log_elapsed_time
 exit 0

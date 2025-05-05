@@ -8,7 +8,7 @@
 *.pfx
 
 # Environment variables and secrets
-#.env
+#*.env*
 #config
 *infra-tempo-401122-*.json
 

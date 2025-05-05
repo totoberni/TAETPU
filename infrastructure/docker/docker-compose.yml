@@ -1,23 +1,16 @@
-version: '3.8'
-
+version: '3'
 services:
   tpu-container:
-    image: ${PROJECT_ID}/taetpu:latest
-    container_name: taetpu-container
-    hostname: taetpu-container
-    privileged: true # Required for TPU access
-    network_mode: host # Best for TPU performance
+    image: ${IMAGE_NAME}:latest
+    container_name: ${CONTAINER_NAME}
+    privileged: true
+    network_mode: host
     environment:
       - PJRT_DEVICE=TPU
       - TF_CPP_MIN_LOG_LEVEL=0
-      - XLA_FLAGS="--xla_dump_to=/app/mount/xla_dumps"
+      - XLA_FLAGS=--xla_dump_to=/app/mount/xla_dumps
     volumes:
-      - ./mount:/app/mount
+      - ./src:/app/mount
+      - /usr/share/tpu/:/usr/share/tpu/
+      - /lib/libtpu.so:/lib/libtpu.so
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import torch_xla; print('TPU available')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    command: bash -c "tail -f /dev/null" # Keep the container running

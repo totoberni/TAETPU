@@ -1,14 +1,13 @@
 #!/bin/bash
-set -e
 
-# Get script directory for absolute path references
+# --- Get script directory for absolute path references ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Import common functions
+# --- Import common functions ---
 source "$PROJECT_DIR/infrastructure/utils/common.sh"
 
-# Initialize
+# --- MAIN SCRIPT ---
 init_script 'Docker Image Setup'
 
 # Load environment variables
@@ -17,21 +16,12 @@ ENV_FILE="$PROJECT_DIR/config/.env"
 load_env_vars "$ENV_FILE"
 
 # Validate required environment variables
-check_env_vars "PROJECT_ID" "SERVICE_ACCOUNT_JSON" || exit 1
-
-# Set Docker directories
-DOCKER_DIR="$PROJECT_DIR/infrastructure/docker"
-DOCKER_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
-
-# Set image name
-TPU_IMAGE_NAME="eu.gcr.io/${PROJECT_ID}/tae-tpu:v1"
-log_success "Image reference: $TPU_IMAGE_NAME"
+check_env_vars "PROJECT_ID" "IMAGE_NAME" || exit 1
 
 # Display configuration
 log_section "Configuration"
-log "Project ID: $PROJECT_ID"
-log "Image name: $TPU_IMAGE_NAME"
-log "This image is designed for TPU computation with source code mounted in /src"
+display_config "PROJECT_ID" "IMAGE_NAME"
+log "This image is designed for TPU computation with source code mounted in /app/mount"
 
 # Set up authentication
 setup_auth
@@ -43,19 +33,16 @@ if ! docker info > /dev/null 2>&1; then
 fi
 
 # Authenticate Docker for Google Container Registry
-log_info "Authenticating with Google Cloud"
+log_section "Authenticating with Google Cloud"
 gcloud auth configure-docker --quiet
 
-# Build the Docker image with proper tagging
-log_info "Building Docker image"
-docker build -t gcr.io/${PROJECT_ID}/taetpu:latest \
-  -t gcr.io/${PROJECT_ID}/taetpu:v1 \
-  -f infrastructure/docker/Dockerfile .
+# Build the Docker image
+log_section "Building Docker image"
+docker build -t "$IMAGE_NAME:latest" -f infrastructure/docker/Dockerfile .
 
 # Push the Docker image to GCR
-log_info "Pushing Docker image to Google Container Registry"
-docker push gcr.io/${PROJECT_ID}/taetpu:latest
-docker push gcr.io/${PROJECT_ID}/taetpu:v1
+log_section "Pushing Docker image to Google Container Registry"
+docker push "$IMAGE_NAME:latest"
 
-log_info "Docker image setup complete. Image is available at: gcr.io/${PROJECT_ID}/taetpu:latest"
+log_success "Docker image setup complete. Image is available at: $IMAGE_NAME:latest"
 exit 0
