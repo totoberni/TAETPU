@@ -1,48 +1,78 @@
 #!/bin/bash
+# TPU VM Teardown Script - Deletes TPU VM resources
+set -e
 
-# --- Get script directory for absolute path references ---
+# ---- Script Constants and Imports ----
+# Get the project directory (2 levels up from this script)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-# --- Import common functions ---
-source "$PROJECT_DIR/infrastructure/utils/common.sh"
-
-# --- MAIN SCRIPT ---
-init_script 'TPU VM Teardown'
+PROJECT_DIR="$( cd "$SCRIPT_DIR/../.." &> /dev/null && pwd )"
 ENV_FILE="$PROJECT_DIR/config/.env"
 
-# Load environment variables
-log "Loading environment variables..."
-load_env_vars "$ENV_FILE"
+# Import common utilities
+source "$SCRIPT_DIR/../utils/common.sh"
 
-# Validate required environment variables
-check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" || exit 1
+# ---- Functions ----
 
-# Display configuration
-display_config "PROJECT_ID" "TPU_NAME" "TPU_ZONE"
+# Validate environment variables and dependencies
+function validate_environment() {
+  log "Validating environment..."
+  
+  # Required environment variables
+  check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" || exit 1
+  
+  # Display configuration
+  display_config "PROJECT_ID" "TPU_NAME" "TPU_ZONE"
+  
+  # Set up authentication
+  setup_auth
+}
 
-# Set up authentication locally
-setup_auth
-
-# Check if TPU exists
-log "Checking if TPU '$TPU_NAME' exists..."
-if ! gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
+# Check if TPU exists and confirm deletion
+function check_and_confirm() {
+  # Check if TPU exists
+  log "Checking if TPU '$TPU_NAME' exists..."
+  if ! gcloud compute tpus tpu-vm describe "$TPU_NAME" --zone="$TPU_ZONE" &> /dev/null; then
     log_warning "TPU '$TPU_NAME' does not exist. Nothing to delete."
     exit 0
-fi
-
-# Confirm deletion
-read -p "Are you sure you want to delete TPU '$TPU_NAME'? (y/n): " confirm
-if [[ "$confirm" != "y" ]]; then
+  fi
+  
+  # Confirm deletion
+  if ! confirm_delete "TPU '$TPU_NAME'"; then
     log "Deletion cancelled."
     exit 0
-fi
+  fi
+}
 
 # Delete the TPU VM
-log "Deleting TPU VM '$TPU_NAME'..."
-gcloud compute tpus tpu-vm delete "$TPU_NAME" \
+function delete_tpu() {
+  log "Deleting TPU VM '$TPU_NAME'..."
+  gcloud compute tpus tpu-vm delete "$TPU_NAME" \
     --zone="$TPU_ZONE" \
     --quiet
+    
+  log_success "TPU VM deleted successfully"
+}
 
-log_success "TPU VM deleted successfully"
-exit 0
+# Main function
+function main() {
+  # Initialize
+  init_script 'TPU VM Teardown'
+  
+  # Load environment variables
+  load_env_vars "$ENV_FILE"
+  
+  # Validate environment
+  validate_environment
+  
+  # Check and confirm deletion
+  check_and_confirm
+  
+  # Delete the TPU
+  delete_tpu
+  
+  # Complete
+  log_elapsed_time
+}
+
+# ---- Main Execution ----
+main

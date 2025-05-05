@@ -1,5 +1,8 @@
 #!/bin/bash
+# Common Utilities - Shared functions for infrastructure scripts
+# These utilities provide standardized logging, error handling, and environment management
 
+# ---- Constants and Variables ----
 # Add colors to the output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -7,59 +10,37 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# --- COMMON LOGGING FUNCTIONS ---
+# Script timing
+SCRIPT_START_TIME=$(date +%s)
+
+# ---- Logging Functions ----
+# Standard log message
 log() {
   local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
   echo -e "[$timestamp] $1"
 }
 
+# Success log message (green)
 log_success() {
   log "${GREEN}$1${NC}"
 }
 
+# Warning log message (yellow)
 log_warning() {
   log "${YELLOW}$1${NC}"
 }
 
+# Error log message (red)
 log_error() {
   log "${RED}$1${NC}"
 }
 
+# Section header (blue)
 log_section() {
   echo -e "\n\033[1;34m=== $1 ===\033[0m"  # Bold blue section header
 }
 
-# --- USER INTERACTION FUNCTIONS ---
-# Ask for user confirmation with customizable prompt and default
-confirm_action() {
-    local prompt="$1"
-    local default="$2"
-    
-    if [[ "$default" == "y" ]]; then
-        prompt="$prompt [Y/n]: "
-    else
-        prompt="$prompt [y/N]: "
-    fi
-    
-    read -p "$prompt" response
-    response=${response,,} # Convert to lowercase
-    
-    if [[ "$default" == "y" ]]; then
-        [[ -z "$response" || "$response" == "y" || "$response" == "yes" ]]
-    else
-        [[ "$response" == "y" || "$response" == "yes" ]]
-    fi
-}
-
-# Specifically ask for deletion confirmation
-confirm_delete() {
-    local item_desc="${1:-these items}"
-    confirm_action "Are you sure you want to delete $item_desc? This operation is irreversible" "n"
-}
-
-# --- SCRIPT STATUS TRACKING ---
-SCRIPT_START_TIME=$(date +%s)
-
+# Log elapsed time since script start
 log_elapsed_time() {
   local end_time=$(date +%s)
   local elapsed=$((end_time - SCRIPT_START_TIME))
@@ -68,7 +49,36 @@ log_elapsed_time() {
   log "Time elapsed: ${minutes}m ${seconds}s"
 }
 
-# --- ERROR HANDLING ---
+# ---- User Interaction Functions ----
+# Ask for user confirmation with customizable prompt and default
+confirm_action() {
+  local prompt="$1"
+  local default="$2"
+  
+  if [[ "$default" == "y" ]]; then
+    prompt="$prompt [Y/n]: "
+  else
+    prompt="$prompt [y/N]: "
+  fi
+  
+  read -p "$prompt" response
+  response=${response,,} # Convert to lowercase
+  
+  if [[ "$default" == "y" ]]; then
+    [[ -z "$response" || "$response" == "y" || "$response" == "yes" ]]
+  else
+    [[ "$response" == "y" || "$response" == "yes" ]]
+  fi
+}
+
+# Specifically ask for deletion confirmation
+confirm_delete() {
+  local item_desc="${1:-these items}"
+  confirm_action "Are you sure you want to delete $item_desc? This operation is irreversible" "n"
+}
+
+# ---- Error Handling ----
+# Handle errors with line number and error code
 handle_error() {
   local line_no=$1
   local error_code=$2
@@ -81,8 +91,8 @@ handle_error() {
 # Set up default error trapping - can be overridden in specific scripts
 trap 'handle_error ${LINENO} $?' ERR
 
-# --- SCRIPT INITIALIZATION ---
-# Initialize paths and environment for setup scripts
+# ---- Script Initialization ----
+# Initialize paths and environment for scripts
 function init_script() {
   local script_name="${1:-Script}"
   
@@ -117,7 +127,7 @@ function init_script() {
   return 0
 }
 
-# --- ENVIRONMENT MANAGEMENT ---
+# ---- Environment Management ----
 # Load environment variables from .env file
 function load_env_vars() {
   local env_file="${1:-$PROJECT_DIR/config/.env}"
@@ -133,7 +143,7 @@ function load_env_vars() {
   fi
 }
 
-# --- UTILITIES ---
+# Check if required environment variables are set
 function check_env_vars() {
   local missing=false
   
@@ -177,6 +187,7 @@ function display_config() {
   done
 }
 
+# Setup authentication for Google Cloud
 function setup_auth() {
   if [[ -n "$SERVICE_ACCOUNT_JSON" && -f "$PROJECT_DIR/config/$SERVICE_ACCOUNT_JSON" ]]; then
     log "Setting up service account authentication..."
@@ -197,6 +208,7 @@ function setup_auth() {
   fi
 }
 
+# Ensure a directory exists
 function ensure_directory() {
   local dir=$1
   if [[ ! -d "$dir" ]]; then
@@ -205,9 +217,9 @@ function ensure_directory() {
   fi
 }
 
-# --- SSH HELPERS ---
+# ---- SSH and Docker Functions ----
 # Execute SSH command on TPU VM
-vmssh() {
+function vmssh() {
   local cmd="$1"
   local worker="${2:-all}"  # Default to all workers if not specified
   
@@ -232,7 +244,7 @@ vmssh() {
 }
 
 # Execute SSH command and capture output to file
-vmssh_out() {
+function vmssh_out() {
   local cmd="$1"
   local output_dir="$2"
   local worker="${3:-0}"  # Default to worker 0
@@ -255,7 +267,34 @@ vmssh_out() {
   fi
 }
 
-# --- DOCKER HELPERS ---
+# Copy files to TPU VM via SCP
+function vmscp() {
+  local src="$1"
+  local dest="$2"
+  local worker="${3:-0}"  # Default to worker 0 if not specified
+  
+  log "Copying files to TPU VM (worker: $worker)"
+  
+  # Execute the SCP command with proper parameters
+  gcloud compute tpus tpu-vm scp \
+    "$src" \
+    "${TPU_NAME}:$dest" \
+    --project="${PROJECT_ID}" \
+    --zone="${TPU_ZONE}" \
+    --worker="$worker" \
+    --force-key-file-overwrite
+  
+  local exit_code=$?
+  
+  if [ $exit_code -ne 0 ]; then
+    log_error "SCP transfer failed with exit code $exit_code"
+    return $exit_code
+  else
+    log_success "Files transferred successfully"
+    return 0
+  fi
+}
+
 # Generate Docker command with TPU access
 function generate_docker_cmd() {
   local IMAGE_NAME="$1"
@@ -267,84 +306,12 @@ function generate_docker_cmd() {
   echo "docker run --rm --privileged \\
     --device=/dev/accel0 \\
     -e PJRT_DEVICE=TPU \\
-    -e XLA_USE_BF16=1 \\
     -e PYTHONUNBUFFERED=1 \\
-    -e TPU_NAME=local \\
-    -e TPU_LOAD_LIBRARY=0 \\
-    -e TF_PLUGGABLE_DEVICE_LIBRARY_PATH=$TPU_LIB_PATH \\
-    -e NEXT_PLUGGABLE_DEVICE_USE_C_API=true \\
     $EXTRA_ARGS \\
-    -v /tmp/dev/src:/app/dev/src \\
+    -v ~/mount:/app/mount \\
+    -v /usr/share/tpu/:/usr/share/tpu/ \\
     -v $TPU_LIB_PATH:$TPU_LIB_PATH \\
     $EXTRA_MOUNTS \\
     $IMAGE_NAME \\
     $COMMAND"
-}
-
-# Function to detect and fix container name mismatch
-check_container_name_mismatch() {
-    local expected_name="${CONTAINER_NAME:-tae-tpu-container}"
-    local expected_tag="${CONTAINER_TAG:-latest}"
-    
-    # Check if the expected container exists
-    if ! docker ps -a --format "{{.Names}}" | grep -q "^${expected_name}$"; then
-        log_warning "Container '$expected_name' not found"
-        
-        # Check if any other container with a similar name exists
-        for container in $(docker ps -a --format "{{.Names}}"); do
-            if [[ "$container" == *"tpu"* || "$container" == *"transformer"* || "$container" == *"ablation"* ]]; then
-                log_warning "Found similar container: $container"
-                log "Creating an alias for container name mismatch..."
-                
-                # Get the image used by this container
-                local container_image=$(docker inspect --format='{{.Config.Image}}' "$container")
-                
-                # Tag the existing image with the expected name
-                docker tag "$container_image" "${expected_name}:${expected_tag}"
-                log_success "Created image alias: $container_image -> ${expected_name}:${expected_tag}"
-                
-                # If container is stopped, use a different approach
-                if [ "$(docker inspect -f '{{.State.Running}}' "$container")" = "false" ]; then
-                    log "Container $container is stopped. Committing current state and creating new container..."
-                    docker commit "$container" "${expected_name}:${expected_tag}"
-                    docker rename "$container" "${container}_old"
-                    docker run -d --name "${expected_name}" \
-                        --privileged \
-                        --network=host \
-                        -e PJRT_DEVICE=TPU \
-                        -v /dev:/dev \
-                        -v /lib/libtpu.so:/lib/libtpu.so \
-                        -v /usr/share/tpu/:/usr/share/tpu/ \
-                        "${expected_name}:${expected_tag}"
-                    log_success "Created new container with expected name: ${expected_name}"
-                else
-                    log_warning "Container $container is running. Please stop it before creating a new container with the expected name."
-                    log "As a temporary workaround, the image has been tagged with the expected name."
-                    log "You can use: docker tag $container_image ${expected_name}:${expected_tag}"
-                fi
-                return 0
-            fi
-        done
-        
-        # If no similar container found, check for similar images
-        for image in $(docker images --format "{{.Repository}}:{{.Tag}}"); do
-            if [[ "$image" == *"tpu"* || "$image" == *"transformer"* || "$image" == *"ablation"* ]]; then
-                log_warning "Found similar image: $image"
-                log "Creating an alias for image name mismatch..."
-                docker tag "$image" "${expected_name}:${expected_tag}"
-                log_success "Created image alias: $image -> ${expected_name}:${expected_tag}"
-                return 0
-            fi
-        done
-        
-        log_error "No similar container or image found to fix naming mismatch."
-        return 1
-    fi
-    
-    return 0
-}
-
-# Helper function for SCP to TPU VM
-vmscp() {
-    gcloud compute tpus tpu-vm scp "$1" "$TPU_NAME:$2" --zone="$TPU_ZONE"
 } 

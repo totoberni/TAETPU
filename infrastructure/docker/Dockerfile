@@ -17,5 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 # Create mount directory with proper permissions
 RUN mkdir -p /app/mount && chmod -R 777 /app/mount
 
+# Set TPU-Docker environment variables. Other optional variables set from .env
+ENV PJRT_DEVICE=TPU
+
 # Keep container running
 CMD ["bash", "-c", "tail -f /dev/null"]

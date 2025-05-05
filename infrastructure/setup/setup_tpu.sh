@@ -1,73 +1,145 @@
 #!/bin/bash
+# TPU VM Setup Script - Creates and configures a TPU VM and Docker container
 set -e
 
-# Source environment variables
-source $(dirname "$0")/../utils/common.sh
+# ---- Script Constants and Imports ----
+# Get the project directory (2 levels up from this script)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_DIR="$( cd "$SCRIPT_DIR/../.." &> /dev/null && pwd )"
+ENV_FILE="$PROJECT_DIR/config/.env"
 
-# Initialize
-init_script 'TPU VM Setup'
+# Import common utilities
+source "$SCRIPT_DIR/../utils/common.sh"
 
-log "Starting TPU VM setup"
+# ---- Functions ----
 
-# Check authentication and permissions
-check_gcloud_auth
+# Validate environment variables and dependencies
+function validate_environment() {
+  log "Validating environment..."
+  
+  # Required environment variables
+  check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "CONTAINER_NAME" \
+                "IMAGE_NAME" "SERVICE_ACCOUNT_EMAIL" "RUNTIME_VERSION" || exit 1
+  load_env_vars "$ENV_FILE"
 
-# Create TPU VM
-log "Creating TPU VM: ${TPU_NAME} (${TPU_TYPE}) in ${TPU_ZONE}"
-gcloud compute tpus tpu-vm create ${TPU_NAME} \
-  --zone=${TPU_ZONE} \
-  --accelerator-type=${TPU_TYPE} \
-  --version=${RUNTIME_VERSION} \
-  --project=${PROJECT_ID}
+  # Display configuration
+  log_section "Configuration"
+  display_config "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "CONTAINER_NAME" \
+                "IMAGE_NAME" "SERVICE_ACCOUNT_EMAIL" "RUNTIME_VERSION"
+  
+  # Set up authentication
+  setup_auth
+}
 
-# Copy necessary files to TPU VM
-log "Copying configuration files to TPU VM"
-gcloud compute tpus tpu-vm scp \
-  "config/${SERVICE_ACCOUNT_JSON}" \
-  "${TPU_NAME}:~/${SERVICE_ACCOUNT_JSON}" \
-  --zone=${TPU_ZONE} \
-  --project=${PROJECT_ID}
+# Set up TPU VM
+function setup_tpu() {
+  log_section "TPU VM Setup"
+  
+  # Check if TPU VM already exists
+  if gcloud compute tpus tpu-vm describe "${TPU_NAME}" --zone="${TPU_ZONE}" \
+     --project="${PROJECT_ID}" &>/dev/null; then
+    log_success "TPU VM '${TPU_NAME}' already exists, skipping creation"
+  else
+    log "Creating TPU VM: ${TPU_NAME} (${TPU_TYPE}) in ${TPU_ZONE}"
+    log "This may take a few minutes..."
+    
+    gcloud compute tpus tpu-vm create "${TPU_NAME}" \
+      --project="${PROJECT_ID}" \
+      --zone="${TPU_ZONE}" \
+      --accelerator-type="${TPU_TYPE}" \
+      --version="${RUNTIME_VERSION}" \
+      --service-account="${SERVICE_ACCOUNT_EMAIL}"
+      
+    log_success "TPU VM created successfully"
+  fi
+  
+  # Copy service account key to TPU VM
+  if [ -n "${SERVICE_ACCOUNT_JSON}" ] && [ -f "$PROJECT_DIR/config/${SERVICE_ACCOUNT_JSON}" ]; then
+    log "Copying service account key to TPU VM"
+    vmscp "$PROJECT_DIR/config/${SERVICE_ACCOUNT_JSON}" "." "0"
+  fi
+}
 
-# Copy docker-compose.yml to TPU VM for consistent container setup
-gcloud compute tpus tpu-vm scp \
-  "infrastructure/docker/docker-compose.yml" \
-  "${TPU_NAME}:~/docker-compose.yml" \
-  --zone=${TPU_ZONE} \
-  --project=${PROJECT_ID}
-
-# Set up Docker on TPU VM
-log "Setting up Docker on TPU VM"
-gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
-  --zone=${TPU_ZONE} \
-  --project=${PROJECT_ID} \
-  --command="
+# Set up Docker container on TPU VM
+function setup_docker() {
+  log_section "Docker Container Setup"
+  log "Setting up Docker container on TPU VM"
+  
+  # Prepare environment variables for container
+  TPU_ENV_FLAGS="-e PJRT_DEVICE=TPU"
+  [ -n "${XLA_USE_BF16}" ] && TPU_ENV_FLAGS+=" -e XLA_USE_BF16=${XLA_USE_BF16}"
+  [ -n "${XLA_FLAGS}" ] && TPU_ENV_FLAGS+=" -e XLA_FLAGS=${XLA_FLAGS}"
+  
+  # Use vmssh from common.sh to execute commands on TPU VM
+  vmssh "
     set -e
     
-    # Authenticate with Google Cloud
-    gcloud auth activate-service-account --key-file=~/${SERVICE_ACCOUNT_JSON}
-    gcloud auth configure-docker ${DOCKER_REGISTRY} --quiet
+    # Create mount directory structure
+    mkdir -p ~/mount
     
-    # Pull the Docker image
-    docker pull ${DOCKER_IMAGE}:${CONTAINER_TAG}
+    # Make sure Docker is installed
+    if ! command -v docker &> /dev/null; then
+      echo 'Docker not found. Installing Docker...'
+      sudo apt-get update
+      sudo apt-get install -y docker.io
+    fi
     
-    # Create mount directory
-    mkdir -p ~/${HOST_MOUNT_DIR#./}
+    # Add current user to docker group to avoid permission issues
+    echo 'Adding user to docker group...'
+    sudo usermod -aG docker \$USER
     
-    # Set environment variables for docker-compose
-    export IMAGE_NAME=${DOCKER_IMAGE}
-    export CONTAINER_NAME=${CONTAINER_NAME}
+    # Use sudo for docker commands as a fallback if group permissions aren't active yet
+    echo 'Pulling the Docker image...'
+    if ! docker pull ${IMAGE_NAME}:latest; then
+      echo 'Using sudo to pull Docker image...'
+      sudo docker pull ${IMAGE_NAME}:latest
+    fi
     
-    # Simple docker run with minimal flags - container configuration is in the image and docker-compose
-    docker run -d \
-      --name ${CONTAINER_NAME} \
-      --privileged \
-      -v ~/${HOST_MOUNT_DIR#./}:${CONTAINER_MOUNT_DIR} \
-      ${DOCKER_IMAGE}:${CONTAINER_TAG}
+    # Run Docker container with appropriate permissions
+    echo 'Starting Docker container...'
+    DOCKER_CMD=\"docker run -d --name ${CONTAINER_NAME} --privileged --net=host ${TPU_ENV_FLAGS} -v ~/mount:/app/mount -v /usr/share/tpu/:/usr/share/tpu/ -v /lib/libtpu.so:/lib/libtpu.so ${IMAGE_NAME}:latest\"
     
-    # Verify container is running
-    docker ps
+    if ! eval \$DOCKER_CMD; then
+      echo 'Using sudo to start Docker container...'
+      sudo \$DOCKER_CMD
+    fi
+    
+    # Verify container is running (try both with and without sudo)
+    if docker ps | grep -q ${CONTAINER_NAME} || sudo docker ps | grep -q ${CONTAINER_NAME}; then
+      echo 'Container started successfully'
+    else
+      echo 'Failed to start container'
+      exit 1
+    fi
+    
+    # Notify user about Docker group changes
+    echo 'Note: If this is the first time adding the user to the docker group,'
+    echo 'you may need to log out and log back in for group changes to take effect.'
   "
+}
 
-log_success "TPU VM setup complete. You can connect using:"
-log "gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${TPU_ZONE} --project=${PROJECT_ID}"
-exit 0
+# Main function
+function main() {
+  # Initialize
+  init_script 'TPU VM Setup'
+  
+  # Load environment variables
+  load_env_vars "$ENV_FILE"
+  
+  # Validate environment
+  validate_environment
+  
+  # Setup TPU
+  setup_tpu
+  
+  # Setup Docker
+  setup_docker
+  
+  # Completed
+  log_success "TPU VM setup complete. Container is running."
+  log_success "You can now use mount.sh and run.sh to interact with the TPU VM."
+  log_elapsed_time
+}
+
+# ---- Main Execution ----
+main
