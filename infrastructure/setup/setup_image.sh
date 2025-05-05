@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Get script directory for absolute path references
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -35,50 +36,26 @@ log "This image is designed for TPU computation with source code mounted in /src
 # Set up authentication
 setup_auth
 
-# Configure Docker for GCR
-log "Configuring Docker for GCR..."
-gcloud auth configure-docker eu.gcr.io --quiet
-
-# Clean up existing container/image if it exists
-log "Cleaning up existing container/image..."
-CONTAINER_NAME="tae-tpu-container"
-docker rm -f $CONTAINER_NAME 2>/dev/null || true
-docker rmi $TPU_IMAGE_NAME 2>/dev/null || true
-
-# Build and push Docker image
-log "Building and pushing Docker image..."
-
-# Change directory to project root (for build context)
-pushd "$PROJECT_DIR" > /dev/null
-
-# Export required environment variables for docker-compose
-export PROJECT_ID
-export SERVICE_ACCOUNT_JSON
-
-# Build using docker-compose
-log "Building with docker-compose..."
-docker-compose -f "$DOCKER_COMPOSE_FILE" build
-
-# Check build status
-if [ $? -ne 0 ]; then
-    log_error "Docker build failed"
-    popd > /dev/null
-    exit 1
+# Ensure Docker is running
+if ! docker info > /dev/null 2>&1; then
+  log_error "Docker is not running. Please start Docker first."
+  exit 1
 fi
 
-# Push the image
-log "Pushing image to GCR..."
-docker push $TPU_IMAGE_NAME
+# Authenticate Docker for Google Container Registry
+log_info "Authenticating with Google Cloud"
+gcloud auth configure-docker --quiet
 
-# Check push status
-if [ $? -ne 0 ]; then
-    log_error "Failed to push Docker image to GCR"
-    popd > /dev/null
-    exit 1
-fi
+# Build the Docker image with proper tagging
+log_info "Building Docker image"
+docker build -t gcr.io/${PROJECT_ID}/taetpu:latest \
+  -t gcr.io/${PROJECT_ID}/taetpu:v1 \
+  -f infrastructure/docker/Dockerfile .
 
-popd > /dev/null
+# Push the Docker image to GCR
+log_info "Pushing Docker image to Google Container Registry"
+docker push gcr.io/${PROJECT_ID}/taetpu:latest
+docker push gcr.io/${PROJECT_ID}/taetpu:v1
 
-log_success "Docker image build and push completed successfully"
-log_success "Image available at: $TPU_IMAGE_NAME"
+log_info "Docker image setup complete. Image is available at: gcr.io/${PROJECT_ID}/taetpu:latest"
 exit 0

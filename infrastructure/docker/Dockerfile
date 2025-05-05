@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS builder
+FROM us-central1-docker.pkg.dev/tpu-pytorch-releases/docker/xla:r2.6.0_3.10_tpuvm AS builder
 
 # Set essential environment variables
 ENV PYTHONUNBUFFERED=1
@@ -13,21 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies with PyTorch/XLA for TPU support
+# Copy requirements and install dependencies in a separate layer for better caching
 COPY infrastructure/docker/requirements.txt /app/
-
-# Install PyTorch and PyTorch/XLA with TPU support in a separate layer
-RUN pip install --upgrade pip && \
-    pip install torch~=2.6.0 'torch_xla[tpu]~=2.6.0' \
-      -f https://storage.googleapis.com/libtpu-releases/index.html \
-      -f https://storage.googleapis.com/libtpu-wheels/index.html
-
-# Install other requirements in a separate layer for better caching
-RUN pip install -r requirements.txt && \
+RUN pip install --no-cache-dir -r requirements.txt && \
     pip cache purge
 
-# Final image
-FROM python:3.11-slim
+# Final image - use the same TPU-specific base image for consistency
+FROM us-central1-docker.pkg.dev/tpu-pytorch-releases/docker/xla:r2.6.0_3.10_tpuvm
 
 # Set essential environment variables
 ENV PYTHONUNBUFFERED=1
@@ -36,15 +28,15 @@ ENV PJRT_DEVICE=TPU
 WORKDIR /app
 
 # Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
+COPY --from=builder /usr/local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/site-packages/
 
-# Install minimal runtime dependencies
+# Install minimal runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create the base mount directory only
+# Create the base mount directory
 RUN mkdir -p /app/mount && chmod -R 777 /app/mount
 
 # Health check to verify mount directory existence

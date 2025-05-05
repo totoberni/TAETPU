@@ -1,40 +1,23 @@
-version: '3'
+version: '3.8'
+
 services:
-  transformer-ablation:
-    build:
-      context: ../..
-      dockerfile: infrastructure/docker/Dockerfile
-    image: ${IMAGE_NAME:-eu.gcr.io/${PROJECT_ID}/tae-tpu:v1}
-    container_name: ${CONTAINER_NAME:-tae-tpu-container}
-    privileged: true
-    network_mode: "host"
+  tpu-container:
+    image: ${PROJECT_ID}/taetpu:latest
+    container_name: taetpu-container
+    hostname: taetpu-container
+    privileged: true # Required for TPU access
+    network_mode: host # Best for TPU performance
     environment:
-      # PyTorch/XLA TPU configuration
       - PJRT_DEVICE=TPU
-      - XLA_USE_BF16=1
-      - TPU_NAME=local
-      - TPU_LOAD_LIBRARY=0
-      - TF_PLUGGABLE_DEVICE_LIBRARY_PATH=/lib/libtpu.so
-      - NEXT_PLUGGABLE_DEVICE_USE_C_API=true
-      # Project variables
-      - PROJECT_ID=${PROJECT_ID}
-      - EXPERIMENT_TYPE=${EXPERIMENT_TYPE:-base}
+      - TF_CPP_MIN_LOG_LEVEL=0
+      - XLA_FLAGS="--xla_dump_to=/app/mount/xla_dumps"
     volumes:
-      # System volumes - essential for TPU access
-      - /dev:/dev
-      - /lib/libtpu.so:/lib/libtpu.so
-      - /usr/share/tpu/:/usr/share/tpu/
-      # Data volumes with proper separation
-      - ${HOST_SRC_DIR:-/tmp/tae_src}:/app/mount
-      - ${HOST_DATASETS_DIR:-./datasets}:/app/datasets
-      - ${HOST_MODELS_DIR:-./models}:/app/models
-      - ${HOST_CHECKPOINTS_DIR:-./checkpoints}:/app/checkpoints
-      - ${HOST_LOGS_DIR:-./logs}:/app/logs
-      - ${HOST_RESULTS_DIR:-./results}:/app/results
+      - ./mount:/app/mount
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.isdir('/app/mount') else 1)"]
+      test: ["CMD", "python", "-c", "import torch_xla; print('TPU available')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 5s
+    command: bash -c "tail -f /dev/null" # Keep the container running

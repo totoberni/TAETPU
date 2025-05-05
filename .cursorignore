@@ -1,0 +1,8 @@
+   # Keep the config folder accessible
+!config/
+
+# Keep the .env file accessible
+!.env
+
+# Keep the .env.local file accessible
+!.env.template
