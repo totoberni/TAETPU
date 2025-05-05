@@ -29,8 +29,7 @@ function validate_environment() {
   
   # Check if the image exists
   if ! gcloud container images describe "$IMAGE_NAME" &>/dev/null; then
-    log_error "Image $IMAGE_NAME does not exist"
-    exit 1
+    log_warning "Image $IMAGE_NAME does not exist"
   fi
 }
 

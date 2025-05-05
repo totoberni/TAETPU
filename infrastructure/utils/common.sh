@@ -208,6 +208,34 @@ function setup_auth() {
   fi
 }
 
+# Setup Docker authentication with Google Container Registry
+function setup_docker_auth() {
+  log "Setting up Docker authentication with Google Container Registry"
+  
+  # Check if TPU name is provided (meaning we're working with a remote TPU VM)
+  if [ -n "${TPU_NAME}" ] && [ "${TPU_NAME}" != "local" ]; then
+    # Remote TPU VM - execute Docker auth commands on the VM
+    log "Configuring Docker auth on TPU VM: ${TPU_NAME}"
+    vmssh "
+      # Configure Docker authentication with GCR
+      sudo gcloud auth configure-docker eu.gcr.io --quiet
+      gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io
+      echo 'Docker authentication configured on TPU VM'
+    " || {
+      log_error "Failed to set up Docker authentication on TPU VM"
+      return 1
+    }
+  else
+    # Local execution
+    log "Configuring local Docker authentication with GCR"
+    gcloud auth configure-docker eu.gcr.io --quiet
+    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io
+  fi
+  
+  log_success "Docker authentication configured successfully"
+  return 0
+}
+
 # Ensure a directory exists
 function ensure_directory() {
   local dir=$1

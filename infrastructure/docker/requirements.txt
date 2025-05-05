@@ -5,6 +5,7 @@ pyyaml~=6.0
 # Transformers and ML libraries
 scikit-learn>=1.2.0
 datasets>=2.14.0
+transformers>=4.30.0
 
 # TPU monitoring
 tensorboard==2.18.0

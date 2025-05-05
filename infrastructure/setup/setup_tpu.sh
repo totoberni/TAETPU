@@ -68,6 +68,10 @@ function setup_docker() {
   log_section "Docker Container Setup"
   log "Setting up Docker container on TPU VM"
   
+  # Set up Docker authentication on TPU VM
+  log "Setting up Docker authentication"
+  setup_docker_auth || log_warning "Docker authentication failed, but continuing..."
+  
   # Prepare environment variables for container
   TPU_ENV_FLAGS="-e PJRT_DEVICE=TPU"
   [ -n "${XLA_USE_BF16}" ] && TPU_ENV_FLAGS+=" -e XLA_USE_BF16=${XLA_USE_BF16}"
@@ -89,11 +93,6 @@ function setup_docker() {
       sudo apt-get update
       sudo apt-get install -y docker.io
     fi
-    
-    # Configure Docker authentication using access tokens
-    echo 'Configuring Docker authentication with GCR...'
-    sudo gcloud auth configure-docker eu.gcr.io --quiet
-    gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io
     
     # Check if container already exists and remove it
     echo 'Checking for existing container...'

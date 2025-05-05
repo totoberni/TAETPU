@@ -25,6 +25,18 @@ fi
 log "Checking required environment variables"
 check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "CONTAINER_NAME" || exit 1
 
+# Set up Docker authentication - simple direct approach
+log_section "Docker Authentication"
+if [ -n "${TPU_NAME}" ] && [ "${TPU_NAME}" != "local" ]; then
+    # On TPU VM
+    vmssh "gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io" || \
+    log_warning "Docker authentication failed, but continuing..."
+else
+    # Local operation
+    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io || \
+    log_warning "Docker authentication failed, but continuing..."
+fi
+
 # Process arguments
 IS_ALL=false
 TARGET_PATH=""
@@ -56,16 +68,22 @@ trap "rm -rf $LOCAL_TEMP_DIR" EXIT
 if [ "$IS_ALL" = true ]; then
     log "Mounting entire local ./src directory"
     
-    # Copy the entire src directory to temp
+    # Copy the entire src directory structure to temp (not just contents)
     if [ -d "./src" ]; then
-        cp -r ./src/* "$LOCAL_TEMP_DIR/"
+        # Create src directory in temp dir to preserve structure
+        mkdir -p "$LOCAL_TEMP_DIR/src"
+        
+        # Copy contents preserving structure
+        cp -r ./src/* "$LOCAL_TEMP_DIR/src/"
+        
+        log "Prepared local src directory structure for transfer"
     else
         log_error "Local ./src directory not found"
         exit 1
     fi
     
     # Set target directory in container
-    TARGET_DIR="${CONTAINER_MOUNT_DIR:-/app/mount}/src"
+    TARGET_DIR="${CONTAINER_MOUNT_DIR:-/app/mount}"
 else
     # Handle specific file or directory
     if [ "$IS_DIR" = true ]; then
@@ -79,7 +97,7 @@ else
     fi
     
     # Determine target directory in container
-    TARGET_DIR="${CONTAINER_MOUNT_DIR:-/app/mount}/src"
+    TARGET_DIR="${CONTAINER_MOUNT_DIR:-/app/mount}"
     if [[ "$TARGET_PATH" == *"/"* ]]; then
         # Extract directory path from TARGET_PATH
         DIR_PART=$(dirname "$TARGET_PATH")
@@ -100,36 +118,19 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --project="${PROJECT_ID}" \
     --command="mkdir -p ${HOST_MOUNT_DIR} && echo 'Remote directory created'"
 
-# Upload files one by one to avoid wildcard issues with Windows
+# Upload files using recursive approach to maintain directory structure
 log "Uploading to TPU VM (project: ${PROJECT_ID}, zone: ${TPU_ZONE}, TPU: ${TPU_NAME})"
 
-# First, try to upload the test file to validate connectivity
-gcloud compute tpus tpu-vm scp \
-    --zone="${TPU_ZONE}" \
-    --project="${PROJECT_ID}" \
-    "${LOCAL_TEMP_DIR}/test.txt" \
-    "${TPU_NAME}:${HOST_MOUNT_DIR}/"
-
-log "Test file uploaded successfully, proceeding with full upload..."
-
-# Then upload the actual content (requires temp dir with content)
 if [ -n "$(ls -A ${LOCAL_TEMP_DIR})" ]; then
-    # Create a tar file of the local temp directory
-    TAR_FILE="${LOCAL_TEMP_DIR}/files.tar"
-    tar -cf "${TAR_FILE}" -C "${LOCAL_TEMP_DIR}" .
-    
-    # Transfer the tar file to TPU VM
+    # Directly transfer files with directory structure preserved
     gcloud compute tpus tpu-vm scp \
+        --recurse \
         --zone="${TPU_ZONE}" \
         --project="${PROJECT_ID}" \
-        "${TAR_FILE}" \
+        "${LOCAL_TEMP_DIR}/"* \
         "${TPU_NAME}:${HOST_MOUNT_DIR}/"
     
-    # Extract the tar file on the TPU VM
-    gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
-        --zone="${TPU_ZONE}" \
-        --project="${PROJECT_ID}" \
-        --command="cd ${HOST_MOUNT_DIR} && tar -xf files.tar && rm files.tar"
+    log_success "Files transferred to TPU VM with directory structure preserved"
 else
     log_warning "No files found to upload"
 fi
@@ -140,18 +141,25 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone="${TPU_ZONE}" \
     --project="${PROJECT_ID}" \
     --command="
-        # Create target directory structure
-        docker exec ${CONTAINER_NAME} mkdir -p $TARGET_DIR
+        # Create target directory structure in container
+        sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR:-/app/mount}
         
-        # Copy files from VM to container
-        docker cp ${HOST_MOUNT_DIR}/. ${CONTAINER_NAME}:$TARGET_DIR/
+        # Copy files from VM to container with proper path preservation
+        if [ \"$IS_ALL\" = true ]; then
+            # For --all, copy the src directory and its contents to maintain isometry
+            sudo docker cp ${HOST_MOUNT_DIR}/src ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR:-/app/mount}/
+        else
+            # For specific files/dirs, respect the target directory structure
+            sudo docker cp ${HOST_MOUNT_DIR}/. ${CONTAINER_NAME}:$TARGET_DIR/
+        fi
         
         # Set proper permissions
-        docker exec ${CONTAINER_NAME} chmod -R 777 $TARGET_DIR
+        sudo docker exec ${CONTAINER_NAME} chmod -R 777 ${CONTAINER_MOUNT_DIR:-/app/mount}
     "
 
 if [ "$IS_ALL" = true ]; then
     log_success "Successfully mounted entire ./src directory to container"
+    vmssh "echo 'Container contents after mount:'; sudo docker exec ${CONTAINER_NAME} ls -la ${CONTAINER_MOUNT_DIR}"
 else
     log_success "Successfully mounted $([ "$IS_DIR" = true ] && echo "directory" || echo "file"): $TARGET_PATH"
 fi

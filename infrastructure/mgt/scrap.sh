@@ -25,6 +25,18 @@ fi
 log "Checking required environment variables"
 check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "CONTAINER_NAME" || exit 1
 
+# Set up Docker authentication - simple direct approach
+log_section "Docker Authentication"
+if [ -n "${TPU_NAME}" ] && [ "${TPU_NAME}" != "local" ]; then
+    # On TPU VM
+    vmssh "gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io" || \
+    log_warning "Docker authentication failed, but continuing..."
+else
+    # Local operation
+    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io || \
+    log_warning "Docker authentication failed, but continuing..."
+fi
+
 # Process arguments
 SCRAP_ALL=false
 SCRAP_DIR=""
@@ -56,8 +68,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Target container directory
-CONTAINER_DIR="/app/mount"
+# Target container directory - use same variable pattern as mount.sh
+CONTAINER_MOUNT_DIR="${CONTAINER_MOUNT_DIR:-/app/mount}"
 
 # Check if TPU VM is accessible
 log "Checking TPU VM connection (project: ${PROJECT_ID}, zone: ${TPU_ZONE}, TPU: ${TPU_NAME})..."
@@ -65,27 +77,43 @@ vmssh "echo 'TPU VM connection successful'" || { log_error "Failed to connect to
 
 # Check if Docker container is running
 log "Checking Docker container status (${CONTAINER_NAME})..."
-vmssh "docker ps | grep -q ${CONTAINER_NAME}" || { log_error "Container ${CONTAINER_NAME} is not running on TPU VM."; exit 1; }
+vmssh "sudo docker ps | grep -q ${CONTAINER_NAME}" || { log_error "Container ${CONTAINER_NAME} is not running on TPU VM."; exit 1; }
 
 # Handle different removal scenarios
 if [ "$SCRAP_ALL" = true ]; then
-    log "Removing ALL files from ${CONTAINER_DIR}..."
+    log "Removing ALL files from ${CONTAINER_MOUNT_DIR}/src..."
     
-    # No validation, just remove everything from /app/mount/
+    # Don't remove the mount directory itself, just its contents
+    # Also ensure we create/preserve the src directory to maintain isometry
     vmssh "
-        docker exec ${CONTAINER_NAME} rm -rf ${CONTAINER_DIR}/*
-        docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_DIR}/src
-        echo 'All files removed from ${CONTAINER_DIR}/'
+        # Remove contents of src directory but not the directory itself
+        sudo docker exec ${CONTAINER_NAME} find ${CONTAINER_MOUNT_DIR}/src -mindepth 1 -delete 2>/dev/null || true
+        
+        # Ensure src directory exists (in case it was removed)
+        sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR}/src
+        
+        # Set proper permissions
+        sudo docker exec ${CONTAINER_NAME} chmod -R 777 ${CONTAINER_MOUNT_DIR}/src
+        
+        echo 'All files removed from ${CONTAINER_MOUNT_DIR}/src'
     "
     
-    log_success "All files removed from container mount directory"
+    log_success "All files removed from container src directory"
 
 elif [ -n "$SCRAP_DIR" ]; then
     log "Removing directory: ${SCRAP_DIR} from container..."
     
+    # For directories, ensure we target the correct path in src/
+    TARGET_PATH="${CONTAINER_MOUNT_DIR}/src/${SCRAP_DIR}"
+    
     vmssh "
-        docker exec ${CONTAINER_NAME} rm -rf ${CONTAINER_DIR}/${SCRAP_DIR}
-        echo 'Directory ${SCRAP_DIR} removed'
+        if sudo docker exec ${CONTAINER_NAME} test -d ${TARGET_PATH}; then
+            # Remove directory contents
+            sudo docker exec ${CONTAINER_NAME} rm -rf ${TARGET_PATH}/*
+            echo 'Directory ${SCRAP_DIR} contents removed'
+        else
+            echo 'Directory not found: ${TARGET_PATH}'
+        fi
     "
     
     log_success "Directory ${SCRAP_DIR} removed from container"
@@ -94,12 +122,18 @@ elif [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
     log "Removing specific files..."
     
     for file in "${SPECIFIC_FILES[@]}"; do
+        # Ensure proper path to file in src directory
+        TARGET_PATH="${CONTAINER_MOUNT_DIR}/src/${file}"
+        
         vmssh "
-            if docker exec ${CONTAINER_NAME} test -f ${CONTAINER_DIR}/${file}; then
-                docker exec ${CONTAINER_NAME} rm -f ${CONTAINER_DIR}/${file}
+            if sudo docker exec ${CONTAINER_NAME} test -f ${TARGET_PATH}; then
+                sudo docker exec ${CONTAINER_NAME} rm -f ${TARGET_PATH}
                 echo 'Removed file: ${file}'
+            elif sudo docker exec ${CONTAINER_NAME} test -d ${TARGET_PATH}; then
+                sudo docker exec ${CONTAINER_NAME} rm -rf ${TARGET_PATH}
+                echo 'Removed directory: ${file} and its contents'
             else
-                echo 'File not found: ${file}'
+                echo 'File or directory not found: ${file}'
             fi
         "
     done
@@ -108,7 +142,7 @@ elif [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
 fi
 
 # Verify current state (optional)
-log "Current container mount directory state:"
-vmssh "docker exec ${CONTAINER_NAME} ls -la ${CONTAINER_DIR}"
+log "Current container src directory state:"
+vmssh "echo 'Container contents after scrap:'; sudo docker exec ${CONTAINER_NAME} ls -la ${CONTAINER_MOUNT_DIR}"
 
 exit 0

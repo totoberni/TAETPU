@@ -17,7 +17,7 @@ import numpy as np
 from tqdm import tqdm
 
 # Import custom modules
-import processing_utils as utils
+import process_utils as utils
 from process_transformer import preprocess_transformer_dataset
 from process_static import preprocess_static_dataset
 from data_import import process_gutenberg_dataset, process_emotion_dataset, save_dataset, check_existing_datasets, get_available_datasets, load_config
