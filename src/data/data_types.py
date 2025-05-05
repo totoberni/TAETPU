@@ -47,7 +47,8 @@ class BaseInput:
     Attributes:
         metadata: Optional metadata associated with the input
     """
-    metadata: Optional[Dict[str, Any]] = None
+    # Move metadata to a separate field class to avoid inheritance ordering issues
+    # metadata: Optional[Dict[str, Any]] = None
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -69,8 +70,9 @@ class BaseTarget:
         task_labels: Dictionary mapping task names to their labels
         metadata: Optional metadata associated with the target
     """
-    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)
-    metadata: Optional[Dict[str, Any]] = None
+    # Move task_labels and metadata to separate classes to avoid inheritance ordering issues
+    # task_labels: Dict[str, TaskLabels] = field(default_factory=dict)
+    # metadata: Optional[Dict[str, Any]] = None
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -98,6 +100,9 @@ class BaseTarget:
             mask: Optional mask indicating which positions have valid labels
             metadata: Optional additional information related to the task
         """
+        if not hasattr(self, 'task_labels'):
+            self.task_labels = {}
+            
         self.task_labels[task_name] = TaskLabels(
             labels=labels,
             mask=mask,
@@ -124,7 +129,7 @@ class TransformerInput(BaseInput):
     position_ids: Optional[np.ndarray] = None
     special_tokens_mask: Optional[np.ndarray] = None
     mlm_mask: Optional[np.ndarray] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -172,8 +177,8 @@ class TransformerTarget(BaseTarget):
     """
     labels: np.ndarray
     attention_mask: np.ndarray
-    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)
-    metadata: Optional[Dict[str, Any]] = None
+    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)  # Add back explicitly at the end
+    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -190,22 +195,23 @@ class TransformerTarget(BaseTarget):
         }
         
         # Convert task-specific labels
-        for task_name, task_labels in self.task_labels.items():
-            # Determine appropriate dtype for the labels
-            if task_name in ('MLM', 'LMLM', 'NSP', 'DISCOURSE'):
-                dtype = torch.long
-            elif task_name in ('SENTIMENT', 'NER', 'POS'):
-                dtype = torch.long
-            elif task_name == 'CONTRASTIVE':
-                # Contrastive labels might be floats (e.g., similarity scores)
-                dtype = torch.float
-            else:
-                dtype = torch.long
+        if hasattr(self, 'task_labels'):
+            for task_name, task_labels in self.task_labels.items():
+                # Determine appropriate dtype for the labels
+                if task_name in ('MLM', 'LMLM', 'NSP', 'DISCOURSE'):
+                    dtype = torch.long
+                elif task_name in ('SENTIMENT', 'NER', 'POS'):
+                    dtype = torch.long
+                elif task_name == 'CONTRASTIVE':
+                    # Contrastive labels might be floats (e.g., similarity scores)
+                    dtype = torch.float
+                else:
+                    dtype = torch.long
+                    
+                tensors[f'{task_name.lower()}_labels'] = torch.tensor(task_labels.labels, dtype=dtype)
                 
-            tensors[f'{task_name.lower()}_labels'] = torch.tensor(task_labels.labels, dtype=dtype)
-            
-            if task_labels.mask is not None:
-                tensors[f'{task_name.lower()}_mask'] = torch.tensor(task_labels.mask, dtype=torch.long)
+                if task_labels.mask is not None:
+                    tensors[f'{task_name.lower()}_mask'] = torch.tensor(task_labels.mask, dtype=torch.long)
         
         # Move tensors to specified device if provided
         if device is not None:
@@ -229,7 +235,7 @@ class StaticInput(BaseInput):
     context_words: np.ndarray
     context_mask: np.ndarray
     negative_samples: Optional[np.ndarray] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -268,8 +274,8 @@ class StaticTarget(BaseTarget):
     """
     target_values: np.ndarray
     target_mask: np.ndarray
-    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)
-    metadata: Optional[Dict[str, Any]] = None
+    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)  # Add back explicitly at the end
+    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -286,22 +292,23 @@ class StaticTarget(BaseTarget):
         }
         
         # Convert task-specific labels
-        for task_name, task_labels in self.task_labels.items():
-            # Determine appropriate dtype for the labels
-            if task_name in ('MLM', 'LMLM', 'NSP', 'DISCOURSE'):
-                dtype = torch.long
-            elif task_name in ('SENTIMENT', 'NER', 'POS'):
-                dtype = torch.long
-            elif task_name == 'CONTRASTIVE':
-                # Contrastive labels might be floats (e.g., similarity scores)
-                dtype = torch.float
-            else:
-                dtype = torch.long
+        if hasattr(self, 'task_labels'):
+            for task_name, task_labels in self.task_labels.items():
+                # Determine appropriate dtype for the labels
+                if task_name in ('MLM', 'LMLM', 'NSP', 'DISCOURSE'):
+                    dtype = torch.long
+                elif task_name in ('SENTIMENT', 'NER', 'POS'):
+                    dtype = torch.long
+                elif task_name == 'CONTRASTIVE':
+                    # Contrastive labels might be floats (e.g., similarity scores)
+                    dtype = torch.float
+                else:
+                    dtype = torch.long
+                    
+                tensors[f'{task_name.lower()}_labels'] = torch.tensor(task_labels.labels, dtype=dtype)
                 
-            tensors[f'{task_name.lower()}_labels'] = torch.tensor(task_labels.labels, dtype=dtype)
-            
-            if task_labels.mask is not None:
-                tensors[f'{task_name.lower()}_mask'] = torch.tensor(task_labels.mask, dtype=torch.long)
+                if task_labels.mask is not None:
+                    tensors[f'{task_name.lower()}_mask'] = torch.tensor(task_labels.mask, dtype=torch.long)
         
         # Move tensors to specified device if provided
         if device is not None:
@@ -355,7 +362,8 @@ def create_transformer_batch(
     # First find all unique task names across the batch
     all_task_names = set()
     for target in targets:
-        all_task_names.update(target.task_labels.keys())
+        if hasattr(target, 'task_labels'):
+            all_task_names.update(target.task_labels.keys())
     
     # Now process each task
     for task_name in all_task_names:
@@ -364,7 +372,7 @@ def create_transformer_batch(
         task_masks = []
         
         for target in targets:
-            if task_name in target.task_labels:
+            if hasattr(target, 'task_labels') and task_name in target.task_labels:
                 task_labels.append(target.task_labels[task_name].labels)
                 
                 if target.task_labels[task_name].mask is not None:
@@ -431,7 +439,8 @@ def create_static_batch(
     # First find all unique task names across the batch
     all_task_names = set()
     for target in targets:
-        all_task_names.update(target.task_labels.keys())
+        if hasattr(target, 'task_labels'):
+            all_task_names.update(target.task_labels.keys())
     
     # Now process each task
     for task_name in all_task_names:
@@ -440,7 +449,7 @@ def create_static_batch(
         task_masks = []
         
         for target in targets:
-            if task_name in target.task_labels:
+            if hasattr(target, 'task_labels') and task_name in target.task_labels:
                 task_labels.append(target.task_labels[task_name].labels)
                 
                 if target.task_labels[task_name].mask is not None:
