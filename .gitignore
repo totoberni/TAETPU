@@ -8,16 +8,9 @@
 *.pfx
 
 # Environment variables and secrets
-.env
-
-#venv
-*.venv/
-*venv/
-
-# Other potentially sensitive files
-config/
-# From existing file
-infra-tempo-401122-*.json
+#.env
+#config
+*infra-tempo-401122-*.json
 
 # Logs and local data
 logs/
