@@ -217,6 +217,58 @@ function ensure_directory() {
   fi
 }
 
+# ---- Container Management Functions ----
+# Get active container ID, exit with error if not found
+function get_container_id() {
+  local container_name="${1:-${CONTAINER_NAME:-tae-tpu-container}}"
+  
+  log "Looking for container: $container_name"
+  local container_id=$(docker ps -q -f name="$container_name")
+  
+  if [ -z "$container_id" ]; then
+    log_warning "Container '$container_name' is not running"
+    
+    # Check if container exists but is stopped
+    local stopped_id=$(docker ps -aq -f name="$container_name")
+    if [ -n "$stopped_id" ]; then
+      log "Container exists but is stopped. Starting container..."
+      docker start "$container_name"
+      container_id=$(docker ps -q -f name="$container_name")
+      
+      if [ -n "$container_id" ]; then
+        log_success "Container started successfully"
+      else
+        log_error "Failed to start container"
+        return 1
+      fi
+    else
+      log_error "Container '$container_name' does not exist"
+      return 1
+    fi
+  fi
+  
+  log_success "Container '$container_name' is active with ID: $container_id"
+  echo "$container_id"
+  return 0
+}
+
+# Check if container exists and remove it if it does
+function remove_container_if_exists() {
+  local container_name="${1:-${CONTAINER_NAME:-tae-tpu-container}}"
+  
+  log "Checking if container '$container_name' exists..."
+  if docker ps -a | grep -q "$container_name"; then
+    log "Container '$container_name' exists, removing it..."
+    docker stop "$container_name" 2>/dev/null || true
+    docker rm "$container_name" 2>/dev/null || true
+    log_success "Container removed"
+    return 0
+  else
+    log "No existing container named '$container_name'"
+    return 1
+  fi
+}
+
 # ---- SSH and Docker Functions ----
 # Execute SSH command on TPU VM
 function vmssh() {

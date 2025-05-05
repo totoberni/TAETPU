@@ -21,9 +21,12 @@ function validate_environment() {
   check_env_vars "PROJECT_ID" "IMAGE_NAME" || exit 1
   load_env_vars "$ENV_FILE"
   
+  # Set default tag if not defined
+  CONTAINER_TAG="${CONTAINER_TAG:-latest}"
+  
   # Display configuration
   log_section "Configuration"
-  display_config "PROJECT_ID" "IMAGE_NAME"
+  display_config "PROJECT_ID" "IMAGE_NAME" "CONTAINER_TAG"
   log "This image is designed for TPU computation with source code mounted in /app/mount"
   
   # Set up authentication
@@ -46,11 +49,13 @@ function configure_docker_auth() {
 function build_and_push_image() {
   # Build the Docker image
   log_section "Building Docker image"
-  docker build -t "$IMAGE_NAME:latest" -f "$PROJECT_DIR/infrastructure/docker/Dockerfile" "$PROJECT_DIR"
+  log "Building image: $IMAGE_NAME:$CONTAINER_TAG"
+  docker build -t "$IMAGE_NAME:$CONTAINER_TAG" -f "$PROJECT_DIR/infrastructure/docker/Dockerfile" "$PROJECT_DIR"
   
   # Push the Docker image to GCR
   log_section "Pushing Docker image to Google Container Registry"
-  docker push "$IMAGE_NAME:latest"
+  log "Pushing image: $IMAGE_NAME:$CONTAINER_TAG"
+  docker push "$IMAGE_NAME:$CONTAINER_TAG"
 }
 
 # Main function
@@ -71,7 +76,7 @@ function main() {
   build_and_push_image
   
   # Completed
-  log_success "Docker image setup complete. Image is available at: $IMAGE_NAME:latest"
+  log_success "Docker image setup complete. Image is available at: $IMAGE_NAME:$CONTAINER_TAG"
 }
 
 # ---- Main Execution ----

@@ -22,10 +22,13 @@ function validate_environment() {
                 "IMAGE_NAME" "SERVICE_ACCOUNT_EMAIL" "RUNTIME_VERSION" || exit 1
   load_env_vars "$ENV_FILE"
 
+  # Set default tag if not defined
+  CONTAINER_TAG="${CONTAINER_TAG:-latest}"
+
   # Display configuration
   log_section "Configuration"
   display_config "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "TPU_TYPE" "CONTAINER_NAME" \
-                "IMAGE_NAME" "SERVICE_ACCOUNT_EMAIL" "RUNTIME_VERSION"
+                "IMAGE_NAME" "CONTAINER_TAG" "SERVICE_ACCOUNT_EMAIL" "RUNTIME_VERSION"
   
   # Set up authentication
   setup_auth
@@ -70,6 +73,9 @@ function setup_docker() {
   [ -n "${XLA_USE_BF16}" ] && TPU_ENV_FLAGS+=" -e XLA_USE_BF16=${XLA_USE_BF16}"
   [ -n "${XLA_FLAGS}" ] && TPU_ENV_FLAGS+=" -e XLA_FLAGS=${XLA_FLAGS}"
   
+  # Full container image reference
+  FULL_IMAGE_NAME="${IMAGE_NAME}:${CONTAINER_TAG}"
+  
   # Use vmssh from common.sh to execute commands on TPU VM
   vmssh "
     set -e
@@ -84,37 +90,43 @@ function setup_docker() {
       sudo apt-get install -y docker.io
     fi
     
-    # Add current user to docker group to avoid permission issues
-    echo 'Adding user to docker group...'
-    sudo usermod -aG docker \$USER
+    # Configure Docker authentication using access tokens
+    echo 'Configuring Docker authentication with GCR...'
+    sudo gcloud auth configure-docker eu.gcr.io --quiet
+    gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io
     
-    # Use sudo for docker commands as a fallback if group permissions aren't active yet
+    # Check if container already exists and remove it
+    echo 'Checking for existing container...'
+    if sudo docker ps -a | grep -q ${CONTAINER_NAME}; then
+      echo 'Container with name ${CONTAINER_NAME} already exists, removing it...'
+      sudo docker stop ${CONTAINER_NAME} 2>/dev/null || true
+      sudo docker rm ${CONTAINER_NAME} 2>/dev/null || true
+      echo 'Existing container removed'
+    fi
+    
+    # Pull the Docker image
     echo 'Pulling the Docker image...'
-    if ! docker pull ${IMAGE_NAME}:latest; then
-      echo 'Using sudo to pull Docker image...'
-      sudo docker pull ${IMAGE_NAME}:latest
-    fi
+    sudo docker pull ${FULL_IMAGE_NAME}
     
-    # Run Docker container with appropriate permissions
+    # Run Docker container with sudo
     echo 'Starting Docker container...'
-    DOCKER_CMD=\"docker run -d --name ${CONTAINER_NAME} --privileged --net=host ${TPU_ENV_FLAGS} -v ~/mount:/app/mount -v /usr/share/tpu/:/usr/share/tpu/ -v /lib/libtpu.so:/lib/libtpu.so ${IMAGE_NAME}:latest\"
+    sudo docker run -d \
+      --name ${CONTAINER_NAME} \
+      --privileged \
+      --net=host \
+      ${TPU_ENV_FLAGS} \
+      -v ~/mount:/app/mount \
+      -v /usr/share/tpu/:/usr/share/tpu/ \
+      -v /lib/libtpu.so:/lib/libtpu.so \
+      ${FULL_IMAGE_NAME}
     
-    if ! eval \$DOCKER_CMD; then
-      echo 'Using sudo to start Docker container...'
-      sudo \$DOCKER_CMD
-    fi
-    
-    # Verify container is running (try both with and without sudo)
-    if docker ps | grep -q ${CONTAINER_NAME} || sudo docker ps | grep -q ${CONTAINER_NAME}; then
+    # Verify container is running with sudo
+    if sudo docker ps | grep -q ${CONTAINER_NAME}; then
       echo 'Container started successfully'
     else
       echo 'Failed to start container'
       exit 1
     fi
-    
-    # Notify user about Docker group changes
-    echo 'Note: If this is the first time adding the user to the docker group,'
-    echo 'you may need to log out and log back in for group changes to take effect.'
   "
 }
 
@@ -137,6 +149,8 @@ function main() {
   
   # Completed
   log_success "TPU VM setup complete. Container is running."
+  log_success "Image used: ${IMAGE_NAME}:${CONTAINER_TAG}" 
+  log_success "Container name: ${CONTAINER_NAME}"
   log_success "You can now use mount.sh and run.sh to interact with the TPU VM."
   log_elapsed_time
 }
