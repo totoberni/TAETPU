@@ -129,7 +129,7 @@ class TransformerInput(BaseInput):
     position_ids: Optional[np.ndarray] = None
     special_tokens_mask: Optional[np.ndarray] = None
     mlm_mask: Optional[np.ndarray] = None
-    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
+    metadata: Optional[Dict[str, Any]] = None
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -177,8 +177,8 @@ class TransformerTarget(BaseTarget):
     """
     labels: np.ndarray
     attention_mask: np.ndarray
-    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)  # Add back explicitly at the end
-    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
+    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)
+    metadata: Optional[Dict[str, Any]] = None
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -235,7 +235,7 @@ class StaticInput(BaseInput):
     context_words: np.ndarray
     context_mask: np.ndarray
     negative_samples: Optional[np.ndarray] = None
-    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
+    metadata: Optional[Dict[str, Any]] = None
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.
@@ -274,8 +274,8 @@ class StaticTarget(BaseTarget):
     """
     target_values: np.ndarray
     target_mask: np.ndarray
-    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)  # Add back explicitly at the end
-    metadata: Optional[Dict[str, Any]] = None  # Add back explicitly at the end
+    task_labels: Dict[str, TaskLabels] = field(default_factory=dict)
+    metadata: Optional[Dict[str, Any]] = None
     
     def to_tensors(self, device=None) -> Dict[str, torch.Tensor]:
         """Convert numpy arrays to PyTorch tensors.

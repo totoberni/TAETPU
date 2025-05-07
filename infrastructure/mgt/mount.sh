@@ -25,18 +25,6 @@ fi
 log "Checking required environment variables"
 check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "CONTAINER_NAME" || exit 1
 
-# Set up Docker authentication - simple direct approach
-log_section "Docker Authentication"
-if [ -n "${TPU_NAME}" ] && [ "${TPU_NAME}" != "local" ]; then
-    # On TPU VM
-    vmssh "gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io" || \
-    log_warning "Docker authentication failed, but continuing..."
-else
-    # Local operation
-    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io || \
-    log_warning "Docker authentication failed, but continuing..."
-fi
-
 # Process arguments
 IS_ALL=false
 TARGET_PATH=""
@@ -107,9 +95,6 @@ fi
 
 # Set default for HOST_MOUNT_DIR
 HOST_MOUNT_DIR="${HOST_MOUNT_DIR:-mount}"
-
-# First create a single small test file to upload
-echo "test" > "$LOCAL_TEMP_DIR/test.txt"
 
 # Create the remote directory and get absolute path (avoid ~ expansion issues)
 log "Setting up remote directory on TPU VM"

@@ -25,18 +25,6 @@ fi
 log "Checking required environment variables"
 check_env_vars "PROJECT_ID" "TPU_NAME" "TPU_ZONE" "CONTAINER_NAME" || exit 1
 
-# Set up Docker authentication - simple direct approach
-log_section "Docker Authentication"
-if [ -n "${TPU_NAME}" ] && [ "${TPU_NAME}" != "local" ]; then
-    # On TPU VM
-    vmssh "gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io" || \
-    log_warning "Docker authentication failed, but continuing..."
-else
-    # Local operation
-    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://eu.gcr.io || \
-    log_warning "Docker authentication failed, but continuing..."
-fi
-
 # Set container paths - use same variable pattern as other scripts
 CONTAINER_MOUNT_DIR="${CONTAINER_MOUNT_DIR:-/app/mount}"
 HOST_MOUNT_DIR="${HOST_MOUNT_DIR:-mount}"
@@ -142,7 +130,13 @@ gcloud compute tpus tpu-vm scp \
 log "Comparing local and container files..."
 
 # Create lists for files to update and files to delete
-mkdir -p "$LOCAL_TEMP_DIR/update"
+if [ "$IS_ALL" = true ]; then
+    # For --all, create a proper src subdirectory structure
+    mkdir -p "$LOCAL_TEMP_DIR/src"
+else
+    mkdir -p "$LOCAL_TEMP_DIR"
+fi
+
 mkdir -p "$LOCAL_TEMP_DIR/delete"
 
 # Files to delete (files in container but not in local)
@@ -201,9 +195,19 @@ while IFS= read -r LOCAL_FILE; do
     if [[ "$LOCAL_FILE" == "./src/"* ]]; then
         # Handle paths that already include ./src/
         CONTAINER_FILE="${CONTAINER_MOUNT_DIR}${LOCAL_FILE#.}"
+        # Keep src/ prefix in RELATIVE_PATH for proper directory structure
+        RELATIVE_PATH="${LOCAL_FILE#./}"
     else
         # Handle paths that don't include ./src/
         CONTAINER_FILE="${CONTAINER_MOUNT_DIR}/src/${LOCAL_FILE#./src/}"
+        
+        # Ensure the relative path includes src/ prefix
+        if [[ "$LOCAL_FILE" == "./src"* ]]; then
+            RELATIVE_PATH="${LOCAL_FILE#./}"
+        else
+            # If we're processing a specific file/dir not under src/, add src/ prefix
+            RELATIVE_PATH="src/${LOCAL_FILE#./}"
+        fi
     fi
     
     # Normalize paths to find in container_files.txt
@@ -217,9 +221,7 @@ while IFS= read -r LOCAL_FILE; do
         
         # File exists in both local and container, check if we need to update
         # Since we can't easily compare timestamps between systems, add file to update list
-        # This is a simplification - in a real implementation, you might want to compare file hashes
-        RELATIVE_PATH="${LOCAL_FILE#./src/}"
-        TARGET_DIR=$(dirname "$LOCAL_TEMP_DIR/update/$RELATIVE_PATH")
+        TARGET_DIR=$(dirname "$LOCAL_TEMP_DIR/$RELATIVE_PATH")
         mkdir -p "$TARGET_DIR"
         cp "$LOCAL_FILE" "$TARGET_DIR/"
         NEEDS_UPDATE=true
@@ -228,8 +230,7 @@ while IFS= read -r LOCAL_FILE; do
         if [ "$IS_VERBOSE" = true ]; then
             log "New file: $LOCAL_FILE"
         fi
-        RELATIVE_PATH="${LOCAL_FILE#./src/}"
-        TARGET_DIR=$(dirname "$LOCAL_TEMP_DIR/update/$RELATIVE_PATH")
+        TARGET_DIR=$(dirname "$LOCAL_TEMP_DIR/$RELATIVE_PATH")
         mkdir -p "$TARGET_DIR"
         cp "$LOCAL_FILE" "$TARGET_DIR/"
         NEEDS_UPDATE=true
@@ -243,13 +244,13 @@ if [ "$NEEDS_UPDATE" = false ]; then
 fi
 
 # Count files to update
-UPDATE_COUNT=$(find "$LOCAL_TEMP_DIR/update" -type f | wc -l)
+UPDATE_COUNT=$(find "$LOCAL_TEMP_DIR" -type f -not -path "*/delete/*" | wc -l)
 log "Found $UPDATE_COUNT files to update"
 
 # In dry run mode, just show what would be updated and exit
 if [ "$IS_DRY_RUN" = true ]; then
     log "DRY RUN - The following files would be updated:"
-    find "$LOCAL_TEMP_DIR/update" -type f | sort
+    find "$LOCAL_TEMP_DIR" -type f -not -path "*/delete/*" | sort
     log_success "Dry run completed. No files were modified."
     exit 0
 fi
@@ -280,7 +281,7 @@ fi
 
 # Create a tar file of the files to update
 TAR_FILE="${LOCAL_TEMP_DIR}/update.tar"
-tar -cf "${TAR_FILE}" -C "${LOCAL_TEMP_DIR}/update" .
+tar -cf "${TAR_FILE}" -C "${LOCAL_TEMP_DIR}" $(ls -A "${LOCAL_TEMP_DIR}" | grep -v "delete")
 
 # Transfer the tar file to TPU VM
 log "Transferring updated files to TPU VM..."
@@ -296,21 +297,40 @@ vmssh "
     # Extract the tar file on the VM
     cd ${HOST_MOUNT_DIR} && tar -xf update.tar && rm update.tar
     
-    # Create target directory structure in container
-    sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR}/src
+    # Create target directory structure in container if needed
+    sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR}
     
     # Copy files from VM to container with proper path preservation
-    if [ \"$IS_ALL\" = true ]; then
-        # For --all, we want to copy everything to /app/mount/src with structure preserved
-        sudo docker cp ${HOST_MOUNT_DIR}/. ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/src/
+    if [ -d \"${HOST_MOUNT_DIR}/src\" ]; then
+        # If there's a src directory in the extracted tar, copy it to maintain isometry
+        sudo docker cp ${HOST_MOUNT_DIR}/src ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/
     else
-        # For specific directory or file, copy to the appropriate target location
-        if [ -d \"${HOST_MOUNT_DIR}/src\" ]; then
-            # If there's a src directory, copy its contents to maintain isometry
-            sudo docker cp ${HOST_MOUNT_DIR}/src/. ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/src/
-        else
-            # Otherwise copy everything to src
+        # If no src directory was extracted (specific file/dir sync), determine appropriate path
+        if [ \"$IS_ALL\" = true ]; then
+            # Should have src directory, something went wrong
+            echo 'Warning: Expected src directory not found in extracted files'
+            # Copy everything to src as fallback
+            sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR}/src
             sudo docker cp ${HOST_MOUNT_DIR}/. ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/src/
+        else
+            # For specific files/dirs not under src/, determine target path
+            RELATIVE_PATH=\"$(basename \"$TARGET_PATH\")\"
+            if [[ \"$TARGET_PATH\" == *\"/src/\"* || \"$TARGET_PATH\" == \"src/\"* ]]; then
+                # Target is within src/ directory, extract the path after src/
+                SUBPATH=\"$(echo \"$TARGET_PATH\" | sed -n 's/.*src\///p')\"
+                if [ -n \"\$SUBPATH\" ]; then
+                    # Copy to the appropriate subdirectory under src/
+                    sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR}/src/\$(dirname \"\$SUBPATH\")
+                    sudo docker cp ${HOST_MOUNT_DIR}/\$(basename \"\$SUBPATH\") ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/src/\$(dirname \"\$SUBPATH\")/
+                else
+                    # Copy directly to src/
+                    sudo docker cp ${HOST_MOUNT_DIR}/. ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/src/
+                fi
+            else
+                # Copy to src/ by default
+                sudo docker exec ${CONTAINER_NAME} mkdir -p ${CONTAINER_MOUNT_DIR}/src
+                sudo docker cp ${HOST_MOUNT_DIR}/. ${CONTAINER_NAME}:${CONTAINER_MOUNT_DIR}/src/
+            fi
         fi
     fi
     
