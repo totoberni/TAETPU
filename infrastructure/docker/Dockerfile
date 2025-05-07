@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy and install requirements
 COPY infrastructure/docker/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt && \
+    python -m spacy download en_core_web_sm && \
     pip cache purge
 
 # Create mount directory with proper permissions

@@ -6,15 +6,13 @@ pyyaml~=6.0
 scikit-learn>=1.2.0
 datasets>=2.14.0
 transformers>=4.30.0
+spacy>=3.6.0
+sentencepiece>=0.1.99
 
 # TPU monitoring
 tensorboard==2.18.0
 torch-tb-profiler==0.4.3
 psutil==5.9.5
-
-# Web server
-Flask==2.3.3
-gunicorn==21.2.0
 
 # Google Cloud
 google-cloud-storage~=2.10.0

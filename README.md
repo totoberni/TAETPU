@@ -17,11 +17,7 @@ This repository contains a robust framework for conducting Transformer model abl
   - [Validating the Docker Environment](#validating-the-docker-environment)
   - [Working with Data](#working-with-data)
   - [Viewing Datasets](#viewing-datasets)
-  - [Directory Structure in Docker Container](#directory-structure-in-docker-container)
 - [Volume Management](#volume-management)
-  - [Container Naming and Consistency](#container-naming-and-consistency)
-  - [Volume Management Options](#volume-management-options)
-  - [Automatic Recovery](#automatic-recovery)
 - [Teardown Resources](#teardown-resources)
 - [Troubleshooting Guide](#troubleshooting-guide)
 - [Additional Resources](#additional-resources)
@@ -46,9 +42,6 @@ The project uses Docker containers to ensure consistent environments and Google 
 ├── .gitignore                    # Git ignore configuration
 ├── README.md                     # Project documentation
 ├── config/                       # Configuration and credential files
-│   ├── .env                      # Environment variables and configuration
-│   ├── .env.template             # Template for environment variables
-│   ├── requirements.txt          # Python dependencies for the project
 │   └── infra-tempo-####          # Service account key
 ├── infrastructure/               # Infrastructure setup and management
 │   ├── setup/                    # Scripts for setting up the environment
@@ -66,26 +59,27 @@ The project uses Docker containers to ensure consistent environments and Google 
 │   │   ├── sync.sh               # Script to synchronize files between local and container
 │   │   └── scrap.sh              # Script to remove files from Docker container
 │   ├── utils/                    # Shared utilities
-│   │   ├── common.sh             # Common bash utilities and functions
-│   │   ├── monitors/             # Monitoring utilities
-│   │   └── logging/              # Logging utilities
+│   │   ├── logging/              # Logging utilities
+│   │   └── monitors/             # Monitoring utilities
 │   └── teardown/                 # Scripts for resource cleanup
 │       ├── teardown_image.sh     # Script to clean up Docker images
 │       └── teardown_tpu.sh       # Script to delete TPU VM
 └── src/                          # Source code for TPU experiments
     ├── configs/                  # Configuration files for experiments
-    │   ├── data_config.yaml      # Configuration for data preprocessing
-    │   └── model_config.yaml     # Configuration for model architecture
-    ├── data/                     # Data processing and management
-    │   ├── data_import.py        # Script to download and process datasets
-    │   ├── data_pipeline.py      # Main entry point for data preprocessing
-    │   ├── data_types.py         # Core data structures for inputs/targets
-    │   ├── process_utils.py      # Shared preprocessing utilities
-    │   ├── process_transformer.py # Transformer-specific preprocessing
-    │   ├── process_static.py     # Static embedding preprocessing
-    │   └── validate_docker.py    # Validation script for Docker environment
+    ├── data/                     # Data processing package
+    │   ├── processors/           # Data processors
+    │   ├── tasks/                # Task generators
+    │   └── utils/                # Utility functions
+    ├── datasets/                 # Dataset files
+    │   ├── clean/                # Processed datasets
+    │   │   ├── static/           # Static embedding datasets
+    │   │   └── transformer/      # Transformer model datasets
+    │   └── raw/                  # Raw downloaded datasets
     ├── models/                   # Model definitions and components
-    └── cache/                    # Cached preprocessing results
+    │   └── prep/                 # Preprocessing models
+    ├── cache/                    # Cached preprocessing results
+    │   └── prep/                 # Preprocessing cache
+    └── example.py                # Example script
 ```
 
 ## Requirements
@@ -119,10 +113,7 @@ Your service account requires the following permissions:
 Create and configure your environment variables:
 
 ```bash
-# Copy the template (don't edit the template directly)
-cp config/.env.template config/.env
-
-# Edit your .env file with your specific settings
+# Create your .env file with your specific settings
 nano config/.env  # or use your preferred editor
 ```
 
@@ -328,7 +319,7 @@ Here are typical file management patterns you might use:
 ./infrastructure/mgt/sync.sh --all
 
 # Run your script with the changes
-./infrastructure/mgt/run.sh data/data_pipeline.py --model transformer
+./infrastructure/mgt/run.sh data/pipeline.py --model transformer
 
 # Check results with shell commands
 ./infrastructure/mgt/run.sh --command "ls -la" src/datasets/clean
@@ -363,28 +354,25 @@ The validation script checks:
 - Import of required Python modules
 - Basic data operations with PyTorch and NumPy
 - File I/O operations in mounted directories
-- Proper functioning of the data_types module
+- Proper functioning of the data types module
 - TPU availability (if running on TPU hardware)
 
 ### Working with Data
 
-The project includes a comprehensive data processing pipeline:
+The data processing pipeline supports the following operations:
 
 ```bash
-# Mount data processing files to Docker container
-./infrastructure/mgt/mount.sh --dir data
-
 # Download and preprocess datasets
-./infrastructure/mgt/run.sh data/data_pipeline.py --start-stage download --end-stage download
+./infrastructure/mgt/run.sh data/pipeline.py --download
 
 # Run full preprocessing pipeline
-./infrastructure/mgt/run.sh data/data_pipeline.py --model all --dataset all
+./infrastructure/mgt/run.sh data/pipeline.py --model all --dataset all
 
 # Run transformer preprocessing only
-./infrastructure/mgt/run.sh data/data_pipeline.py --model transformer --dataset all
+./infrastructure/mgt/run.sh data/pipeline.py --model transformer --dataset all
 
 # Run static embedding preprocessing only
-./infrastructure/mgt/run.sh data/data_pipeline.py --model static --dataset all
+./infrastructure/mgt/run.sh data/pipeline.py --model static --dataset all
 ```
 
 #### Data Processing Pipeline Options
@@ -396,8 +384,9 @@ The data pipeline supports the following options:
   - `--dataset [gutenberg|emotion|all]`: Select dataset to process
 
 - **Pipeline Control**:
-  - `--start-stage [download|tokenization|label_generation]`: Stage to start from
-  - `--end-stage [download|tokenization|label_generation|all]`: Stage to end at
+  - `--download`: Download and prepare raw datasets
+  - `--preprocess`: Preprocess datasets (default if no mode specified)
+  - `--view`: View datasets instead of processing them
   - `--force`: Force overwrite existing processed data
   - `--disable-cache`: Disable caching of preprocessed data
   - `--n-processes N`: Number of parallel processes to use
@@ -413,12 +402,9 @@ The data pipeline supports the following options:
   - `--profile`: Enable performance profiling
 
 - **Dataset Viewing**:
-  - `--view`: View datasets instead of processing them
   - `--dataset-type [raw|clean|auto]`: Type of datasets to view
   - `--examples N`: Number of examples to show (default: 3)
   - `--detailed`: Show detailed information about examples
-
-Processed datasets are saved to the `/app/mount/src/datasets/clean` directory in the Docker container.
 
 ### Viewing Datasets
 
@@ -426,33 +412,16 @@ You can view the raw or processed datasets:
 
 ```bash
 # View raw datasets
-./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type raw
+./infrastructure/mgt/run.sh data/pipeline.py --view --dataset-type raw
 
 # View processed datasets
-./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset-type clean
+./infrastructure/mgt/run.sh data/pipeline.py --view --dataset-type clean
 
 # View only transformer datasets with detailed information
-./infrastructure/mgt/run.sh data/data_pipeline.py --view --model transformer --detailed
+./infrastructure/mgt/run.sh data/pipeline.py --view --model transformer --detailed
 
 # View a specific dataset
-./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset gutenberg
-```
-
-### Directory Structure in Docker Container
-
-All data processing happens within the Docker container with the following directory structure:
-
-```
-/app/mount/src/
-├── configs/                # Configuration files
-├── datasets/               # Dataset files
-│   ├── raw/                # Raw downloaded datasets
-│   └── clean/              # Processed datasets
-│       ├── transformer/    # Transformer model datasets
-│       └── static/         # Static embedding datasets
-├── cache/prep/             # Preprocessing cache
-├── models/prep/            # Preprocessing models (e.g., SentencePiece)
-└── data/                   # Data processing scripts
+./infrastructure/mgt/run.sh data/pipeline.py --view --dataset gutenberg
 ```
 
 ## Volume Management
@@ -484,21 +453,10 @@ The system supports two approaches to volume management:
    ./infrastructure/mgt/mount.sh --named-volumes --dir data
    ```
 
-### Automatic Recovery
-
 All management scripts implement automatic recovery mechanisms:
 - Detect container name mismatches and resolve them
 - Create aliases automatically when mismatches detected
 - Provide detailed error messages with explicit resolution steps
-
-If you encounter "Unable to find image 'tae-tpu-container:latest' locally" error:
-```bash
-# The scripts will automatically detect and fix this issue
-./infrastructure/mgt/mount.sh --all
-
-# Or you can manually create an alias
-docker tag eu.gcr.io/${PROJECT_ID}/tae-tpu:v1 tae-tpu-container:latest
-```
 
 ## Teardown Resources
 
@@ -556,24 +514,36 @@ gcloud compute tpus tpu-vm list --zone=$TPU_ZONE
 gcloud compute tpus tpu-vm describe $TPU_NAME --zone=$TPU_ZONE
 ```
 
-### Common Command Patterns
+## Task Generation and TPU Optimization
 
-Here are some frequently used command patterns:
+The framework includes comprehensive task generation capabilities and TPU-specific optimizations:
 
-```bash
-# Full data processing workflow
-./infrastructure/mgt/mount.sh --dir data
-./infrastructure/mgt/run.sh data/data_pipeline.py --model transformer --dataset gutenberg
+### Task Generators
 
-# Validation and verification
-./infrastructure/mgt/run.sh data/validate_docker.py
-./infrastructure/mgt/run.sh example.py
+Eight pre-implemented task generators are available for different NLP tasks:
 
-# Clean up and restart
-./infrastructure/mgt/scrap.sh --all
-./infrastructure/teardown/teardown_tpu.sh
-./infrastructure/setup/setup_tpu.sh
-```
+| Task Type | Description | Use Case |
+|-----------|-------------|----------|
+| MLM | Masked Language Modeling | Standard BERT-style pretraining |
+| LMLM | Large span Masked Language Modeling | Long-range dependency learning |
+| NER | Named Entity Recognition | Entity extraction with BIO tagging |
+| POS | Part-of-Speech tagging | Syntactic analysis |
+| NSP | Next Sentence Prediction | Document coherence modeling |
+| Discourse | Discourse marker prediction | Rhetorical structure analysis |
+| Sentiment | Sentiment/emotion classification | Affective computing |
+| Contrastive | Contrastive learning | Similarity encoding with validation |
+
+### TPU-Specific Optimizations
+
+The preprocessing pipeline incorporates several TPU-specific optimizations:
+
+- Padding to multiples of 8 for all tensor dimensions (critical for XLA)
+- Fixed batch sizes that are multiples of 8 (preferably 128 per TPU core)
+- Static shapes across all datasets to prevent XLA recompilations
+- Memory-efficient implementations for maximum throughput
+- Standardized array format outputs for direct TPU consumption
+- BFloat16 precision for optimal numerical stability
+- Length-based bucketing for efficient processing
 
 ## Additional Resources
 
