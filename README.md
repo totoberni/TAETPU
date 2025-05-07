@@ -1,6 +1,42 @@
 # Transformer Ablation Experiment on Google Cloud TPU (TAETPU)
 
-This repository contains a framework for conducting Transformer model ablation experiments on Google Cloud TPUs. It provides the infrastructure to set up, run, and analyze experiments that examine the impact of various Transformer architecture components.
+This repository contains a robust framework for conducting Transformer model ablation experiments on Google Cloud TPUs. It provides complete infrastructure for setting up, running, and analyzing experiments that examine the impact of various Transformer architecture components.
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Project Structure](#project-structure)
+- [Requirements](#requirements)
+- [Setup Process](#setup-process)
+  - [Configuration](#configuration)
+  - [Check for Available TPU Zones](#check-for-available-tpu-zones)
+  - [Build and Push the Docker Image](#build-and-push-the-docker-image)
+  - [Set Up TPU VM and Pull Docker Image](#set-up-tpu-vm-and-pull-docker-image)
+- [Development Workflow](#development-workflow)
+  - [Working with Docker Container](#working-with-docker-container)
+  - [Validating the Docker Environment](#validating-the-docker-environment)
+  - [Working with Data](#working-with-data)
+  - [Viewing Datasets](#viewing-datasets)
+  - [Directory Structure in Docker Container](#directory-structure-in-docker-container)
+- [Volume Management](#volume-management)
+  - [Container Naming and Consistency](#container-naming-and-consistency)
+  - [Volume Management Options](#volume-management-options)
+  - [Automatic Recovery](#automatic-recovery)
+- [Teardown Resources](#teardown-resources)
+- [Troubleshooting Guide](#troubleshooting-guide)
+- [Additional Resources](#additional-resources)
+
+## Project Overview
+
+TAETPU is designed to facilitate research into the importance of different Transformer architecture components by providing a standardized environment for experiments. The framework handles:
+
+- Infrastructure setup (TPU provisioning, Docker image management)
+- Data preprocessing (tokenization, alignment, transformer-specific processing)
+- File synchronization between local environment and TPU VMs
+- Dataset management and visualization
+- Resource cleanup
+
+The project uses Docker containers to ensure consistent environments and Google Cloud TPUs for accelerated training.
 
 ## Project Structure
 
@@ -8,9 +44,10 @@ This repository contains a framework for conducting Transformer model ablation e
 .
 ├── .gitattributes                # Git attributes configuration
 ├── .gitignore                    # Git ignore configuration
-├── README.md                     # Project documentation (this file)
+├── README.md                     # Project documentation
 ├── config/                       # Configuration and credential files
 │   ├── .env                      # Environment variables and configuration
+│   ├── .env.template             # Template for environment variables
 │   ├── requirements.txt          # Python dependencies for the project
 │   └── infra-tempo-####          # Service account key
 ├── infrastructure/               # Infrastructure setup and management
@@ -26,6 +63,7 @@ This repository contains a framework for conducting Transformer model ablation e
 │   ├── mgt/                      # Management scripts for Docker operations
 │   │   ├── mount.sh              # Script to mount files to Docker container
 │   │   ├── run.sh                # Script to execute files in Docker container
+│   │   ├── sync.sh               # Script to synchronize files between local and container
 │   │   └── scrap.sh              # Script to remove files from Docker container
 │   ├── utils/                    # Shared utilities
 │   │   ├── common.sh             # Common bash utilities and functions
@@ -36,7 +74,8 @@ This repository contains a framework for conducting Transformer model ablation e
 │       └── teardown_tpu.sh       # Script to delete TPU VM
 └── src/                          # Source code for TPU experiments
     ├── configs/                  # Configuration files for experiments
-    │   └── data_config.yaml      # Configuration for data preprocessing
+    │   ├── data_config.yaml      # Configuration for data preprocessing
+    │   └── model_config.yaml     # Configuration for model architecture
     ├── data/                     # Data processing and management
     │   ├── data_import.py        # Script to download and process datasets
     │   ├── data_pipeline.py      # Main entry point for data preprocessing
@@ -49,7 +88,7 @@ This repository contains a framework for conducting Transformer model ablation e
     └── cache/                    # Cached preprocessing results
 ```
 
-## 0. Requirements
+## Requirements
 
 Before starting, ensure you have:
 
@@ -68,7 +107,14 @@ chmod +x infrastructure/utils/*.sh
 chmod +x infrastructure/mgt/*.sh
 ```
 
-## 1. Configuration
+## Setup Process
+
+### Configuration
+
+Your service account requires the following permissions:
+- `roles/tpu.admin` - For creating and managing TPUs
+- `roles/storage.admin` - For accessing GCS and Artifact Registry
+- `roles/compute.admin` - For VM operations
 
 Create and configure your environment variables:
 
@@ -84,26 +130,34 @@ Your `.env` file should contain:
 
 ```bash
 # Project Configuration
-PROJECT_ID=your-project-id
-TPU_REGION=europe-west4
-TPU_ZONE=europe-west4-a
-TPU_NAME=your-tpu-name
-TPU_TYPE=v2-8
-RUNTIME_VERSION=tpu-ubuntu2204-base
+PROJECT_ID=your-project-id              # Your Google Cloud project ID
+TPU_REGION=europe-west4                 # Region for TPU deployment
+TPU_ZONE=europe-west4-a                 # Zone within the region for TPU
+TPU_NAME=your-tpu-name                  # Name for your TPU instance
+TPU_TYPE=v2-8                           # TPU type (v2-8, v3-8, etc.)
+RUNTIME_VERSION=tpu-ubuntu2204-base     # TPU VM runtime version
+
+# Container Configuration 
+CONTAINER_NAME=tae-tpu-container        # Docker container name (IMPORTANT: must match in all scripts)
+CONTAINER_TAG=latest                    # Container tag to use
+IMAGE_NAME=eu.gcr.io/${PROJECT_ID}/tae-tpu:v1  # Docker image name with registry
 
 # Service Account details
-SERVICE_ACCOUNT_JSON=your-service-account.json
-SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
+SERVICE_ACCOUNT_JSON=your-service-account.json  # JSON key filename
+SERVICE_ACCOUNT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com  # Service account email
 
 # Dataset Configuration
 # Format: DATASET_[KEY]_NAME = the dataset name/path on Hugging Face
 DATASET_GUTENBERG_NAME="nbeerbower/gutenberg2-dpo"
 DATASET_EMOTION_NAME="dair-ai/emotion"
+
+# Volume Management Options (optional)
+HOST_SRC_DIR=/tmp/tae_src                 # Local host directory for src
+USE_NAMED_VOLUMES=false                   # Whether to use Docker named volumes
+VOLUME_PREFIX=tae                         # Prefix for Docker named volumes
 ```
 
-## 2. Setup Process
-
-### 2.1 Check for Available TPU Zones
+### Check for Available TPU Zones
 
 Find a zone where your desired TPU type is available:
 
@@ -111,7 +165,13 @@ Find a zone where your desired TPU type is available:
 ./infrastructure/setup/check_zones.sh
 ```
 
-### 2.2 Build and Push the Docker Image
+This script:
+1. Authenticates with GCP using your service account
+2. Lists available zones in your configured region
+3. Checks each zone for your specified TPU type
+4. Updates your `.env` file with the first available zone
+
+### Build and Push the Docker Image
 
 Build your Docker image and push it to Google Container Registry:
 
@@ -119,7 +179,13 @@ Build your Docker image and push it to Google Container Registry:
 ./infrastructure/setup/setup_image.sh
 ```
 
-### 2.3 Set Up TPU VM and Pull Docker Image
+This script:
+1. Authenticates with Google Container Registry
+2. Cleans up any existing containers/images with same name
+3. Builds the Docker image using docker-compose
+4. Pushes the image to GCR
+
+### Set Up TPU VM and Pull Docker Image
 
 Create the TPU VM, pull the Docker image, and start the container:
 
@@ -127,13 +193,20 @@ Create the TPU VM, pull the Docker image, and start the container:
 ./infrastructure/setup/setup_tpu.sh
 ```
 
-## 3. Development Workflow
+This script:
+1. Creates a TPU VM with your specified configuration
+2. Configures authentication for Docker on the VM
+3. Pulls your Docker image from GCR
+4. Creates necessary Docker volumes for persistent storage
+5. Runs the container with TPU access and mounted volumes
 
-### 3.1 Working with Docker Container
+## Development Workflow
 
-The project provides four management scripts for working with the Docker container, allowing you to mount, run, synchronize, and clean up files:
+### Working with Docker Container
 
-#### 3.1.1 File Management Overview
+The project provides four management scripts for working with the Docker container:
+
+#### 1. File Management Overview
 
 | Script | Purpose | Key Features |
 |--------|---------|-------------|
@@ -144,7 +217,7 @@ The project provides four management scripts for working with the Docker contain
 
 These scripts maintain directory structure isometry between your local machine and the Docker container.
 
-#### 3.1.2 Mounting Files (`mount.sh`)
+#### 2. Mounting Files (`mount.sh`)
 
 Use `mount.sh` to copy files from your local environment to the Docker container:
 
@@ -162,8 +235,10 @@ Use `mount.sh` to copy files from your local environment to the Docker container
 `mount.sh` options:
 - `--all`: Mount the entire src directory structure
 - `--dir [directory]`: Mount a specific directory and its contents
+- `--named-volumes`: Use Docker named volumes instead of host directories
+- `--type [volume-type]`: Specify volume type (src, datasets, models, etc.)
 
-#### 3.1.3 Running Code (`run.sh`)
+#### 3. Running Code (`run.sh`)
 
 The `run.sh` script allows you to run Python scripts or shell commands in the container:
 
@@ -188,7 +263,7 @@ The `run.sh` script allows you to run Python scripts or shell commands in the co
 - `--interactive`, `-i`: Run command in interactive mode (with TTY)
 - `--help`, `-h`: Show help message
 
-#### 3.1.4 Synchronizing Files (`sync.sh`)
+#### 4. Synchronizing Files (`sync.sh`)
 
 Use `sync.sh` to efficiently update files that have changed:
 
@@ -214,7 +289,7 @@ Use `sync.sh` to efficiently update files that have changed:
 - `--dry-run`: Show what would be updated without making changes
 - `--verbose`: Show detailed information about file comparison
 
-#### 3.1.5 Cleaning Up Files (`scrap.sh`)
+#### 5. Cleaning Up Files (`scrap.sh`)
 
 Use `scrap.sh` to remove files from the Docker container:
 
@@ -234,7 +309,7 @@ Use `scrap.sh` to remove files from the Docker container:
 - `--dir [directory]`: Remove a specific directory and its contents
 - File arguments: Remove specific files
 
-#### 3.1.6 Typical Workflow Patterns
+#### 6. Typical Workflow Patterns
 
 Here are typical file management patterns you might use:
 
@@ -271,9 +346,7 @@ Here are typical file management patterns you might use:
 ./infrastructure/mgt/scrap.sh --all
 ```
 
-The management scripts maintain directory structure isometry, ensuring that paths in your local environment match those in the Docker container, making file management intuitive and predictable.
-
-### 3.2 Validating the Docker Environment
+### Validating the Docker Environment
 
 Before running experiments, you can validate that the Docker environment is properly set up:
 
@@ -293,7 +366,7 @@ The validation script checks:
 - Proper functioning of the data_types module
 - TPU availability (if running on TPU hardware)
 
-### 3.3 Working with Data
+### Working with Data
 
 The project includes a comprehensive data processing pipeline:
 
@@ -347,7 +420,7 @@ The data pipeline supports the following options:
 
 Processed datasets are saved to the `/app/mount/src/datasets/clean` directory in the Docker container.
 
-### 3.4 Viewing Datasets
+### Viewing Datasets
 
 You can view the raw or processed datasets:
 
@@ -365,7 +438,7 @@ You can view the raw or processed datasets:
 ./infrastructure/mgt/run.sh data/data_pipeline.py --view --dataset gutenberg
 ```
 
-### 3.5 Directory Structure in Docker Container
+### Directory Structure in Docker Container
 
 All data processing happens within the Docker container with the following directory structure:
 
@@ -382,7 +455,52 @@ All data processing happens within the Docker container with the following direc
 └── data/                   # Data processing scripts
 ```
 
-## 4. Teardown Resources
+## Volume Management
+
+The project implements best practices for Docker volume management to ensure consistent operation.
+
+### Container Naming and Consistency
+
+All scripts use a consistent approach to container and image naming:
+- Use `CONTAINER_NAME` from environment variables (defaults to `tae-tpu-container`)
+- Use `CONTAINER_TAG` from environment variables (defaults to `latest`)
+- Use `IMAGE_NAME` from environment variables (defaults to `eu.gcr.io/${PROJECT_ID}/tae-tpu:v1`)
+
+### Volume Management Options
+
+The system supports two approaches to volume management:
+
+1. **Host Directory Mounting (Default)**:
+   ```bash
+   # Mount files using host directories
+   ./infrastructure/mgt/mount.sh --all
+   ./infrastructure/mgt/mount.sh --dir data
+   ```
+
+2. **Named Volume Mounting**:
+   ```bash
+   # Mount files using Docker named volumes
+   ./infrastructure/mgt/mount.sh --named-volumes --all
+   ./infrastructure/mgt/mount.sh --named-volumes --dir data
+   ```
+
+### Automatic Recovery
+
+All management scripts implement automatic recovery mechanisms:
+- Detect container name mismatches and resolve them
+- Create aliases automatically when mismatches detected
+- Provide detailed error messages with explicit resolution steps
+
+If you encounter "Unable to find image 'tae-tpu-container:latest' locally" error:
+```bash
+# The scripts will automatically detect and fix this issue
+./infrastructure/mgt/mount.sh --all
+
+# Or you can manually create an alias
+docker tag eu.gcr.io/${PROJECT_ID}/tae-tpu:v1 tae-tpu-container:latest
+```
+
+## Teardown Resources
 
 When you're done with your TPU resources:
 
@@ -394,8 +512,72 @@ When you're done with your TPU resources:
 ./infrastructure/teardown/teardown_image.sh
 ```
 
-## 5. Additional Resources
+The teardown scripts provide:
+- Interactive confirmation to prevent accidental deletions
+- Complete resource cleanup to avoid ongoing charges
+- Proper GCP service disconnection
+- Local Docker image cleanup
+
+## Troubleshooting Guide
+
+### Container Name Mismatch
+
+If you encounter "Unable to find image 'tae-tpu-container:latest' locally" error:
+
+```bash
+# Quick fix: Tag the existing image with the name expected by the scripts
+docker tag eu.gcr.io/${PROJECT_ID}/tae-tpu:v1 tae-tpu-container:latest
+
+# Verify container exists
+docker ps -a | grep tae-tpu
+```
+
+### Docker Volume Issues
+
+If container can't access mounted volumes:
+
+```bash
+# Check volume permissions
+docker exec tae-tpu-container ls -la /app/mount
+
+# Fix permissions if needed
+docker exec tae-tpu-container chmod -R 777 /app/mount
+```
+
+### TPU Connectivity Problems
+
+If scripts can't connect to TPU:
+
+```bash
+# Verify TPU exists and is running
+gcloud compute tpus tpu-vm list --zone=$TPU_ZONE
+
+# Check TPU status
+gcloud compute tpus tpu-vm describe $TPU_NAME --zone=$TPU_ZONE
+```
+
+### Common Command Patterns
+
+Here are some frequently used command patterns:
+
+```bash
+# Full data processing workflow
+./infrastructure/mgt/mount.sh --dir data
+./infrastructure/mgt/run.sh data/data_pipeline.py --model transformer --dataset gutenberg
+
+# Validation and verification
+./infrastructure/mgt/run.sh data/validate_docker.py
+./infrastructure/mgt/run.sh example.py
+
+# Clean up and restart
+./infrastructure/mgt/scrap.sh --all
+./infrastructure/teardown/teardown_tpu.sh
+./infrastructure/setup/setup_tpu.sh
+```
+
+## Additional Resources
 
 - [Google Cloud TPU Documentation](https://cloud.google.com/tpu/docs)
 - [PyTorch XLA Documentation](https://pytorch.org/xla/)
 - [TPU Performance Guide](https://cloud.google.com/tpu/docs/performance-guide)
+- [Docker with TPU Guide](https://cloud.google.com/tpu/docs/run-in-container)
