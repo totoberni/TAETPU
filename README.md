@@ -131,24 +131,147 @@ Create the TPU VM, pull the Docker image, and start the container:
 
 ### 3.1 Working with Docker Container
 
-Mount, run, and manage files in the Docker container:
+The project provides four management scripts for working with the Docker container, allowing you to mount, run, synchronize, and clean up files:
+
+#### 3.1.1 File Management Overview
+
+| Script | Purpose | Key Features |
+|--------|---------|-------------|
+| `mount.sh` | Copies files to container | Directory structure preservation, full/partial mounting |
+| `run.sh` | Executes scripts or commands | Python script execution, shell command execution, directory navigation |
+| `sync.sh` | Keeps files in sync | Two-way synchronization, dry run mode, selective updates |
+| `scrap.sh` | Removes files from container | Selective/complete cleanup, directory preservation |
+
+These scripts maintain directory structure isometry between your local machine and the Docker container.
+
+#### 3.1.2 Mounting Files (`mount.sh`)
+
+Use `mount.sh` to copy files from your local environment to the Docker container:
 
 ```bash
-# Mount files to Docker container
+# Mount all files in the src directory
+./infrastructure/mgt/mount.sh --all
+
+# Mount a specific file
 ./infrastructure/mgt/mount.sh example.py
 
-# Run a file in Docker container
-./infrastructure/mgt/run.sh example.py
+# Mount a specific directory
+./infrastructure/mgt/mount.sh --dir data
+```
 
-# Clean up files from Docker container (preserves critical directory structure)
+`mount.sh` options:
+- `--all`: Mount the entire src directory structure
+- `--dir [directory]`: Mount a specific directory and its contents
+
+#### 3.1.3 Running Code (`run.sh`)
+
+The `run.sh` script allows you to run Python scripts or shell commands in the container:
+
+```bash
+# Run a Python script
+./infrastructure/mgt/run.sh example.py --arg value
+
+# Execute a shell command in the default directory (/app/mount)
+./infrastructure/mgt/run.sh --command "ls -la"
+
+# Execute a command in a specific directory
+./infrastructure/mgt/run.sh --command "cat data_config.yaml" src/configs
+
+# Start an interactive shell in a specific directory
+./infrastructure/mgt/run.sh --interactive --command "bash" src
+```
+
+`run.sh` options:
+- Regular mode: `run.sh [script_path] [arguments]` - Executes a Python script
+- Command mode: `run.sh --command "[command]" [directory]` - Executes a shell command
+  - Optional directory parameter to specify working directory (relative to /app/mount)
+- `--interactive`, `-i`: Run command in interactive mode (with TTY)
+- `--help`, `-h`: Show help message
+
+#### 3.1.4 Synchronizing Files (`sync.sh`)
+
+Use `sync.sh` to efficiently update files that have changed:
+
+```bash
+# Sync all files in the src directory
+./infrastructure/mgt/sync.sh --all
+
+# Sync a specific file
+./infrastructure/mgt/sync.sh example.py
+
+# Sync a specific directory
+./infrastructure/mgt/sync.sh data
+
+# Preview sync changes without applying them
+./infrastructure/mgt/sync.sh --all --dry-run
+
+# Show detailed information during sync
+./infrastructure/mgt/sync.sh --all --verbose
+```
+
+`sync.sh` options:
+- `--all`: Sync all files in the src directory
+- `--dry-run`: Show what would be updated without making changes
+- `--verbose`: Show detailed information about file comparison
+
+#### 3.1.5 Cleaning Up Files (`scrap.sh`)
+
+Use `scrap.sh` to remove files from the Docker container:
+
+```bash
+# Remove all files from /app/mount (completely clean)
+./infrastructure/mgt/scrap.sh --all
+
+# Remove a specific directory
+./infrastructure/mgt/scrap.sh --dir cache
+
+# Remove specific files
+./infrastructure/mgt/scrap.sh data/example.py models/test_model.py
+```
+
+`scrap.sh` options:
+- `--all`: Remove all files from the container mount directory
+- `--dir [directory]`: Remove a specific directory and its contents
+- File arguments: Remove specific files
+
+#### 3.1.6 Typical Workflow Patterns
+
+Here are typical file management patterns you might use:
+
+**Initial Setup:**
+```bash
+# Mount entire src directory
+./infrastructure/mgt/mount.sh --all
+
+# Run validation script
+./infrastructure/mgt/run.sh data/validate_docker.py
+```
+
+**Development Cycle:**
+```bash
+# Edit files locally, then sync changes
+./infrastructure/mgt/sync.sh --all
+
+# Run your script with the changes
+./infrastructure/mgt/run.sh data/data_pipeline.py --model transformer
+
+# Check results with shell commands
+./infrastructure/mgt/run.sh --command "ls -la" src/datasets/clean
+
+# View logs or outputs
+./infrastructure/mgt/run.sh --command "cat output.log" src
+```
+
+**Cleanup:**
+```bash
+# Remove temporary files, keep important data
+./infrastructure/mgt/scrap.sh --dir cache/prep
+
+# Complete cleanup
 ./infrastructure/mgt/scrap.sh --all
 ```
 
-The management scripts now use Docker-only commands and handle the required directory structure:
-
-- `mount.sh` - Copies files to a mount directory and maintains container directories
-- `run.sh` - Executes Python scripts inside the container with proper paths
-- `scrap.sh` - Removes files while preserving essential directory structure
+The management scripts maintain directory structure isometry, ensuring that paths in your local environment match those in the Docker container, making file management intuitive and predictable.
 
 ### 3.2 Validating the Docker Environment
 
