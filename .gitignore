@@ -8,10 +8,10 @@
 *.pfx
 
 # Environment variables and secrets
-*.env
+.env
 *infra-tempo-401122-*.json
 # Keep template
-!*/.env.template
+!.env.template
 
 # Logs and local data
 logs/
