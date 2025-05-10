@@ -1,4 +1,11 @@
-"""Centralized caching functionality for the TAETPU project."""
+"""Centralized caching functionality for the TAETPU project.
+
+This module provides a unified caching system for:
+- Saving and loading data to/from disk cache
+- Validating cache freshness using configuration hashes
+- Managing cache files and directories
+- Efficient reuse of computationally expensive operations
+"""
 
 import os
 import pickle

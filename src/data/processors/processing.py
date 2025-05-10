@@ -1,8 +1,7 @@
 """
-Shared utilities for data preprocessing.
+Data processing utilities for transformers and static embedding models.
 
-This module provides essential functionality for data preprocessing
-specific to the data module.
+This module provides core text processing and data transformation functions.
 """
 
 import os
@@ -15,16 +14,12 @@ import numpy as np
 from typing import Dict, List, Any, Callable, Optional, Union, Tuple
 from pathlib import Path
 
-from ...utils import (
-    ensure_directories_exist,
-    process_in_parallel
-)
-
-from ...utils import load_config
+# Import from parent packages
+from ...utils import process_in_parallel, ensure_directories_exist, hash_config
 
 # Configure logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('utils.processing')
+logger = logging.getLogger('data.processors.processing')
 
 def clean_text(text: str, config: Dict = None) -> str:
     """

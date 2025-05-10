@@ -265,7 +265,7 @@ def create_standard_directories() -> None:
     """Create standard directory structure if not exists."""
     for path in DATA_PATHS.values():
         try:
-            os.makedirs(path, exist_ok=True)
+            ensure_directories_exist([path])
             logger.debug(f"Ensuring directory exists: {path}")
         except Exception as e:
             logger.error(f"Failed to create directory {path}: {e}")

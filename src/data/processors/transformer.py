@@ -13,11 +13,11 @@ import torch
 from tqdm import tqdm
 
 # Import from package
-from ..utils.processing import (
+from .processing import (
     hash_config, is_cache_valid, save_to_cache, load_from_cache, 
     clean_text, process_in_parallel, pad_sequences
 )
-from ..utils.data_io import load_dataset
+from ..io import load_dataset
 from ..tasks import create_task_generator
 from ..types import TransformerInput, TransformerTarget
 

@@ -35,7 +35,7 @@ from src import (
 from src.data.types import TransformerInput, TransformerTarget, StaticInput, StaticTarget, TaskLabels
 from src.data.processors.transformer import TransformerProcessor
 from src.data.processors.static import StaticProcessor
-from src.data.utils.data_io import load_dataset, download_all_datasets
+from data.io import load_dataset, download_all_datasets
 
 # Constants - paths are mounted via Docker volumes
 CONFIG_PATH = "/app/mount/src/configs/data_config.yaml"

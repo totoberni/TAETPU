@@ -1,4 +1,11 @@
-"""Transformer Ablation Experiment Models Package."""
+"""Transformer Ablation Experiment Models Package.
+
+This package provides model-related utilities, including:
+- Model saving and loading functionalities with TPU optimization
+- Support for both transformer and static embedding model types
+- Pretrained model loaders with HuggingFace integration
+- Configurable serialization for experiment tracking
+"""
 
 import os
 import logging
@@ -129,7 +136,6 @@ def load_model(
     logger.info(f"Model loaded from {model_path}")
     return model, extra_data
 
-# Function added from data_io.py
 def load_pretrained_model(model_name: str, model_dir: str) -> Any:
     """
     Load pretrained model from disk or Hugging Face.

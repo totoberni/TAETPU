@@ -11,7 +11,7 @@ import json
 from typing import Dict, Any, List, Optional
 
 # Configure logger
-logger = logging.getLogger('data.io')
+logger = logging.getLogger('utils.data_io')
 
 def load_dataset(dataset_name: str, raw_dir: str) -> Any:
     """

@@ -30,9 +30,12 @@ from ..tpu import (
 
 from ..utils import (
     # Environment and configuration
+    ensure_directories_exist
+)
+
+from ..configs import (
     load_config,
-    DATA_PATHS,
-    create_standard_directories
+    DATA_PATHS
 )
 
 # Import centralized cache functionality
@@ -40,7 +43,8 @@ from ..cache import (
     save_to_cache,
     load_from_cache,
     cache_exists,
-    clear_cache
+    clear_cache,
+    is_cache_valid
 )
 
 # Ensure data directories exist
@@ -67,14 +71,14 @@ from .types import (
     TaskLabels
 )
 
-# Import processing utilities (non-TPU specific)
-from .utils.processing import (
+# Import processing utilities from processors (clean_text moved to processors/processing.py)
+from .processors.processing import (
     clean_text,
     process_in_parallel
 )
 
 # Import data I/O utilities
-from .utils.data_io import (
+from .io import (
     load_dataset, 
     save_dataset, 
     download_dataset,
@@ -203,7 +207,6 @@ __all__ = [
     # Subpackages
     'processors',
     'tasks',
-    'utils',
     'types',
     
     # Data types
@@ -249,11 +252,16 @@ __all__ = [
     # Processing utilities
     'clean_text',
     'process_in_parallel',
-    'ensure_directories_exist',
+    
+    # Cache utilities
     'save_to_cache',
     'load_from_cache',
     'cache_exists',
-    'clear_cache'
+    'clear_cache',
+    'is_cache_valid',
+    
+    # Directory management
+    'ensure_directories_exist'
 ]
 
 if __name__ == "__main__":
