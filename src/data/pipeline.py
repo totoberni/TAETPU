@@ -16,12 +16,26 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-# Import from reorganized package
-from .utils.processing import load_config, ensure_directories_exist, optimize_for_tpu
-from .utils.data_io import load_dataset
-from .processors.transformer import TransformerProcessor
-from .processors.static import StaticProcessor
-from .types import TransformerInput, TransformerTarget, StaticInput, StaticTarget, TaskLabels
+# Import directly from src package for centralized functionality
+from src import (
+    # Core utilities
+    load_config,
+    ensure_directories_exist,
+    
+    # TPU-specific utilities
+    optimize_for_tpu,
+    set_xla_environment_variables,
+    optimize_tensor_dimensions,
+    
+    # Path constants
+    DATA_PATHS
+)
+
+# Import from data package
+from src.data.types import TransformerInput, TransformerTarget, StaticInput, StaticTarget, TaskLabels
+from src.data.processors.transformer import TransformerProcessor
+from src.data.processors.static import StaticProcessor
+from src.data.utils.data_io import load_dataset, download_all_datasets
 
 # Constants - paths are mounted via Docker volumes
 CONFIG_PATH = "/app/mount/src/configs/data_config.yaml"
@@ -82,53 +96,11 @@ def download_datasets(config: Dict, force: bool = False) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    from datasets import load_dataset
-    
     logger.info("Starting dataset download stage")
     ensure_directories_exist([DATASET_RAW_DIR])
     
-    # Extract dataset configurations
-    if 'datasets' not in config:
-        logger.error("No datasets defined in configuration")
-        return False
-    
-    datasets_config = config['datasets']
-    success = True
-    
-    for dataset_name, dataset_config in datasets_config.items():
-        dataset_path = os.path.join(DATASET_RAW_DIR, dataset_name)
-        
-        # Skip if dataset exists and force is False
-        if os.path.exists(dataset_path) and not force:
-            logger.info(f"Dataset {dataset_name} already exists. Use --force to overwrite.")
-            continue
-        
-        logger.info(f"Downloading dataset: {dataset_name}")
-        try:
-            # Handle different dataset sources
-            if dataset_name == "gutenberg":
-                dataset = load_dataset("nbeerbower/gutenberg2-dpo")
-                # Keep only the 'chosen' column
-                dataset = dataset.remove_columns([c for c in dataset["train"].column_names if c != "chosen"])
-            elif dataset_name == "emotion":
-                dataset = load_dataset("dair-ai/emotion")
-                # Rename 'label' to 'emo_label' for clarity
-                dataset = dataset.rename_column("label", "emo_label")
-            else:
-                # Generic dataset loading using config
-                hf_name = dataset_config.get('name', dataset_name)
-                dataset = load_dataset(hf_name)
-            
-            # Save dataset to disk
-            os.makedirs(dataset_path, exist_ok=True)
-            dataset.save_to_disk(dataset_path)
-            logger.info(f"Successfully downloaded and saved dataset: {dataset_name}")
-            
-        except Exception as e:
-            logger.error(f"Error downloading dataset {dataset_name}: {e}")
-            success = False
-    
-    return success
+    # Use centralized function for downloading datasets
+    return download_all_datasets(config, DATASET_RAW_DIR, force)
 
 def view_datasets(args: argparse.Namespace, config: Dict) -> None:
     """
@@ -326,6 +298,10 @@ def preprocess_datasets(args: argparse.Namespace, config: Dict) -> None:
     else:
         model_types = [args.model]
     
+    # Set TPU environment variables if optimizing for TPU
+    if args.optimize_for_tpu:
+        set_xla_environment_variables()
+    
     # Start profiling if requested
     if args.profile:
         start_time = time.time()
@@ -409,12 +385,11 @@ def preprocess_datasets(args: argparse.Namespace, config: Dict) -> None:
                     tpu_dir = os.path.join(dataset_dir, "tpu_optimized")
                     os.makedirs(tpu_dir, exist_ok=True)
                     
-                    # Get optimal batch size for TPU
+                    # Get optimal batch size for TPU (ensure multiple of 8)
                     batch_size = config.get('batch_processing', {}).get('batch_size', 128)
-                    # Round up to nearest multiple of 8 for TPU efficiency
-                    batch_size = ((batch_size + 7) // 8) * 8
+                    batch_size = optimize_tensor_dimensions(batch_size, 8)
                     
-                    # Optimize for TPU
+                    # Use the centralized optimize_for_tpu function
                     optimize_for_tpu(inputs, targets, tpu_dir, model_type, batch_size)
                     logger.info(f"Successfully created TPU-optimized version in {tpu_dir}")
                     

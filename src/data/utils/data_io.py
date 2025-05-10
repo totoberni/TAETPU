@@ -7,10 +7,8 @@ and other data I/O operations with TPU optimization.
 
 import os
 import logging
-import shutil
-import hashlib
-from typing import Dict, Any, List, Optional
 import json
+from typing import Dict, Any, List, Optional
 
 # Configure logger
 logger = logging.getLogger('utils.data_io')
@@ -122,37 +120,6 @@ def download_all_datasets(config: Dict, raw_dir: str, force: bool = False) -> bo
     
     return success
 
-def load_model(model_name: str, model_dir: str) -> Any:
-    """
-    Load pretrained model from disk or Hugging Face.
-    
-    Args:
-        model_name: Name or path of model to load
-        model_dir: Local directory to search for model
-        
-    Returns:
-        Loaded model
-    """
-    try:
-        from transformers import AutoModel, AutoConfig
-        
-        # Try to load from local directory first
-        local_path = os.path.join(model_dir, model_name)
-        if os.path.exists(local_path):
-            logger.info(f"Loading model from local path: {local_path}")
-            return AutoModel.from_pretrained(local_path)
-        
-        # Otherwise load from Hugging Face
-        logger.info(f"Loading model from Hugging Face: {model_name}")
-        return AutoModel.from_pretrained(model_name)
-    
-    except ImportError:
-        logger.error("transformers library is not installed. Install with 'pip install transformers'")
-        raise
-    except Exception as e:
-        logger.error(f"Error loading model {model_name}: {e}")
-        raise
-
 def save_processed_dataset(
     dataset_data: Dict,
     output_dir: str,
@@ -237,6 +204,7 @@ def save_dataset(
         logger.info(f"Saved HuggingFace dataset to {save_path}")
     else:
         # Fallback for other types
+        import torch
         torch.save(dataset, os.path.join(save_path, "dataset.pt"))
         logger.info(f"Saved generic dataset to {save_path}")
     
@@ -245,7 +213,7 @@ def save_dataset(
 def load_processed_data(
     dataset_name: str,
     model_type: str,
-    base_dir: str = "/app/mount/src/datasets/clean"
+    base_dir: str = None
 ) -> Dict[str, Any]:
     """
     Load processed input and target data for a dataset.
@@ -253,11 +221,18 @@ def load_processed_data(
     Args:
         dataset_name: Name of the dataset
         model_type: 'transformer' or 'static'
-        base_dir: Base directory for clean datasets
+        base_dir: Base directory for clean datasets. If None, uses CONTAINER_MOUNT_DIR from env.
         
     Returns:
         Dictionary with loaded inputs and targets
     """
+    import torch
+    
+    # Get base directory from environment variable if not provided
+    if base_dir is None:
+        container_mount_dir = os.environ.get('CONTAINER_MOUNT_DIR', '/app/mount')
+        base_dir = os.path.join(container_mount_dir, 'src/datasets/clean')
+    
     dataset_dir = os.path.join(base_dir, model_type, dataset_name)
     
     if not os.path.exists(dataset_dir):
