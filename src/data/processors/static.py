@@ -13,11 +13,11 @@ import torch
 from tqdm import tqdm
 
 # Import from package
-from ..utils.processing import (
+from .processing import (
     hash_config, is_cache_valid, save_to_cache, load_from_cache, 
-    clean_text, process_in_parallel, pad_sequences
+    clean_text, process_in_parallel, pad_sequences, create_alignment_map, map_task_labels
 )
-from ..utils.data_io import load_dataset
+from ..io import load_dataset
 from ..tasks import create_task_generator
 from ..types import StaticInput, StaticTarget
 
@@ -437,7 +437,8 @@ class StaticProcessor:
                         inputs=result['static_inputs'],
                         config=config,
                         cache_dir=cache_dir,
-                        output_dir=dataset_dir
+                        output_dir=dataset_dir,
+                        transformer_data=transformer_data
                     )
                     
                     return result
@@ -527,6 +528,22 @@ class StaticProcessor:
         torch.save(targets, os.path.join(dataset_dir, "targets.pt"))
         torch.save(vocabulary, os.path.join(dataset_dir, "vocabulary.pt"))
         
+        # Create alignment maps if transformer data is available
+        if transformer_data and 'transformer_inputs' in transformer_data:
+            logger.info(f"Creating alignment maps for {dataset_name}")
+            transformer_inputs = transformer_data.get('transformer_inputs', [])
+            
+            # Create and store alignment maps
+            alignment_maps = create_alignment_map(transformer_inputs, vocabulary)
+            
+            # Store alignment info in static inputs metadata
+            for i, inp in enumerate(inputs):
+                if i < len(alignment_maps):
+                    inp.metadata['alignment_map'] = alignment_maps[i]
+            
+            # Save updated inputs with alignment maps
+            torch.save(inputs, os.path.join(dataset_dir, "inputs.pt"))
+            
         # Prepare result dictionary
         result = {
             'vocabulary': vocabulary,
@@ -545,7 +562,8 @@ class StaticProcessor:
             inputs=inputs,
             config=config,
             cache_dir=cache_dir,
-            output_dir=dataset_dir
+            output_dir=dataset_dir,
+            transformer_data=transformer_data
         )
         
         logger.info(f"Dataset {dataset_name} processed successfully with {len(inputs)} examples")
@@ -557,7 +575,8 @@ class StaticProcessor:
         inputs: List[StaticInput],
         config: Dict,
         output_dir: str,
-        cache_dir: Optional[str] = None
+        cache_dir: Optional[str] = None,
+        transformer_data: Optional[Dict] = None
     ) -> None:
         """
         Generate task-specific labels for the dataset.
@@ -568,6 +587,7 @@ class StaticProcessor:
             config: Configuration dictionary
             output_dir: Output directory for the dataset
             cache_dir: Directory for caching
+            transformer_data: Optional transformer data for alignment
         """
         logger.info(f"Generating task labels for static dataset: {dataset_name}")
         
@@ -590,7 +610,59 @@ class StaticProcessor:
         # Generate labels for each task
         all_task_labels = {}
         
+        # First check if we can use transformer task labels
+        if transformer_data and 'transformer_targets' in transformer_data:
+            logger.info(f"Using transformer task labels for alignment in {dataset_name}")
+            transformer_targets = transformer_data['transformer_targets']
+            
+            # Process each task from transformer targets
+            for task_name in enabled_tasks:
+                # Check if task generator supports static models
+                task_config = {}
+                task_defaults = config.get('tasks', {}).get(task_name, {}).get('defaults', {})
+                task_config.update(task_defaults)
+                task_overrides = dataset_config.get('task_overrides', {}).get(task_name, {})
+                task_config.update(task_overrides)
+                
+                generator = create_task_generator(task_name, task_config)
+                
+                if not generator or not generator.supports_model_type('static'):
+                    logger.info(f"Skipping {task_name} (not supported for static models)")
+                    continue
+                
+                # Convert transformer task labels to static task labels
+                static_task_labels = []
+                
+                for i, (inp, target) in enumerate(zip(inputs, transformer_targets)):
+                    if task_name in target.task_labels:
+                        # Get alignment map from input metadata
+                        alignment_map = inp.metadata.get('alignment_map')
+                        if alignment_map:
+                            # Map transformer task labels to static task labels
+                            task_label = map_task_labels(
+                                target.task_labels[task_name],
+                                alignment_map,
+                                default_label=0  # Use appropriate default for each task
+                            )
+                            static_task_labels.append(task_label)
+                        else:
+                            static_task_labels.append(None)
+                    else:
+                        static_task_labels.append(None)
+                
+                # Only use mapped labels if we have sufficient coverage
+                valid_labels = [label for label in static_task_labels if label is not None]
+                if len(valid_labels) >= len(inputs) * 0.5:  # At least 50% coverage
+                    logger.info(f"Using mapped transformer labels for {task_name} ({len(valid_labels)}/{len(inputs)} examples)")
+                    all_task_labels[task_name] = static_task_labels
+                else:
+                    logger.info(f"Insufficient coverage for mapped {task_name} labels ({len(valid_labels)}/{len(inputs)}), will generate from scratch")
+        
+        # Generate any missing task labels
         for task_name in enabled_tasks:
+            if task_name in all_task_labels:
+                continue  # Skip if we already have labels from transformer mapping
+                
             # Get task-specific configuration
             task_config = {}
             

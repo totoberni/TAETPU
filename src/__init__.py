@@ -24,13 +24,13 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Import core subpackages
+# Import subpackages in dependency order
 from . import utils
-from . import configs
-from . import tpu
-from . import cache
-from . import models
-from . import data
+from . import configs  # Depends on utils
+from . import cache    # Depends on utils
+from . import tpu      # Depends on utils, configs
+from . import models   # Depends on utils, configs, tpu
+from . import data     # Depends on utils, configs, cache, tpu, models
 
 # Optional: Register model types (if needed for experiments)
 def register_model_types():

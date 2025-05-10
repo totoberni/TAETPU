@@ -18,11 +18,13 @@ logger = logging.getLogger(__name__)
 
 # Import functions from parent package with relative imports
 from ..utils import (
-    DATA_PATHS,
     ensure_directories_exist,
     handle_errors, 
     safe_operation
 )
+
+# Import DATA_PATHS from configs instead of utils
+from ..configs import DATA_PATHS
 
 from ..tpu import (
     optimize_tensor_dimensions,

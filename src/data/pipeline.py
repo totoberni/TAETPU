@@ -16,38 +16,144 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-# Import directly from src package for centralized functionality
-from src import (
-    # Core utilities
+# Use relative imports instead of direct src imports
+from ..configs import (
     load_config,
-    ensure_directories_exist,
-    
-    # TPU-specific utilities
-    optimize_for_tpu,
-    set_xla_environment_variables,
-    optimize_tensor_dimensions,
-    
-    # Path constants
     DATA_PATHS
 )
 
-# Import from data package
-from src.data.types import TransformerInput, TransformerTarget, StaticInput, StaticTarget, TaskLabels
-from src.data.processors.transformer import TransformerProcessor
-from src.data.processors.static import StaticProcessor
-from data.io import load_dataset, download_all_datasets
+from ..utils import (
+    ensure_directories_exist
+)
 
-# Constants - paths are mounted via Docker volumes
-CONFIG_PATH = "/app/mount/src/configs/data_config.yaml"
-DATASET_RAW_DIR = "/app/mount/src/datasets/raw"
-DATASET_CLEAN_DIR = "/app/mount/src/datasets/clean"
-CACHE_PREP_DIR = "/app/mount/src/cache/prep"
-MODELS_PREP_DIR = "/app/mount/src/models/prep"
+from ..tpu import (
+    optimize_for_tpu,
+    set_xla_environment_variables,
+    optimize_tensor_dimensions
+)
+
+# Import from data package using relative imports
+from .types import TransformerInput, TransformerTarget, StaticInput, StaticTarget, TaskLabels
+from .processors.transformer import TransformerProcessor
+from .processors.static import StaticProcessor
+from .io import load_dataset, download_all_datasets
 
 # Setup logging
 logger = logging.getLogger('data_pipeline')
 logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Function that was moved from __init__.py
+def ensure_data_directories():
+    """Ensure all data directories exist."""
+    data_dirs = [
+        DATA_PATHS['DATASET_RAW_DIR'],
+        DATA_PATHS['DATASET_CLEAN_STATIC_DIR'],
+        DATA_PATHS['DATASET_CLEAN_TRANSFORMER_DIR']
+    ]
+    for path in data_dirs:
+        os.makedirs(path, exist_ok=True)
+        logger.debug(f"Ensured directory exists: {path}")
+
+# Exposed wrapper function moved from __init__.py
+def preprocess_dataset(dataset_name, model_type="all", optimize_tpu=True, force=False, cache_dir=None, n_processes=None, config=None):
+    """
+    Preprocess a dataset for specified model type with centralized logic.
+    
+    Args:
+        dataset_name: Name of the dataset to process
+        model_type: Model type ('transformer', 'static', or 'all')
+        optimize_tpu: Whether to optimize for TPU
+        force: Whether to force reprocessing
+        cache_dir: Cache directory for intermediate results
+        n_processes: Number of processes to use
+        config: Custom config to use (or None to load default)
+        
+    Returns:
+        Dictionary with processing results
+    """
+    if config is None:
+        config = load_config()
+    
+    args = argparse.Namespace(
+        preprocess=True,
+        model=model_type,
+        dataset=dataset_name,
+        optimize_for_tpu=optimize_tpu,
+        force=force,
+        disable_cache=cache_dir is None,
+        cache_dir=cache_dir or DATA_PATHS['CACHE_PREP_DIR'],
+        output_dir=os.path.dirname(DATA_PATHS['DATASET_CLEAN_STATIC_DIR']),
+        raw_dir=DATA_PATHS['DATASET_RAW_DIR'],
+        n_processes=n_processes,
+        config=DATA_PATHS['CONFIG_PATH'],
+        profile=False
+    )
+    
+    preprocess_datasets(args, config)
+    
+    # Return results
+    result = {}
+    model_types = ["transformer", "static"] if model_type == "all" else [model_type]
+    for model in model_types:
+        dataset_dir = os.path.join(os.path.dirname(DATA_PATHS['DATASET_CLEAN_STATIC_DIR']), 
+                                  model, dataset_name)
+        if os.path.exists(dataset_dir):
+            result[model] = dataset_dir
+    
+    return result
+
+# Exposed wrapper function moved from __init__.py
+def download_datasets_wrapper(dataset_names=None, force=False, config=None):
+    """
+    Download datasets with centralized logic.
+    
+    Args:
+        dataset_names: List of dataset names or None for all 
+        force: Whether to force download even if dataset exists
+        config: Custom config to use (or None to load default)
+        
+    Returns:
+        True if successful, False if any failed
+    """
+    if config is None:
+        config = load_config()
+    
+    # Filter datasets if names provided
+    if dataset_names:
+        original_datasets = config.get('datasets', {})
+        filtered_datasets = {k: v for k, v in original_datasets.items() if k in dataset_names}
+        config['datasets'] = filtered_datasets
+    
+    return download_all_datasets(config, DATA_PATHS['DATASET_RAW_DIR'], force)
+
+# Exposed wrapper function moved from __init__.py
+def view_dataset(dataset_name, model_type="all", dataset_type="clean", examples=3, detailed=False):
+    """
+    View a dataset with centralized logic.
+    
+    Args:
+        dataset_name: Name of the dataset to view
+        model_type: Model type ('transformer', 'static', or 'all')  
+        dataset_type: Dataset type ('raw', 'clean', or 'auto')
+        examples: Number of examples to show
+        detailed: Whether to show detailed information
+    """
+    config = load_config()
+    
+    args = argparse.Namespace(
+        view=True,
+        model=model_type,
+        dataset=dataset_name,
+        dataset_type=dataset_type,
+        examples=examples,
+        detailed=detailed,
+        output_dir=os.path.dirname(DATA_PATHS['DATASET_CLEAN_STATIC_DIR']),
+        raw_dir=DATA_PATHS['DATASET_RAW_DIR'],
+        config=DATA_PATHS['CONFIG_PATH']
+    )
+    
+    view_datasets(args, config)
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the data pipeline."""
@@ -71,10 +177,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detailed", action="store_true", help="Show detailed information")
     
     # Resource configuration
-    parser.add_argument("--config", type=str, default=CONFIG_PATH, help="Path to config YAML file")
-    parser.add_argument("--output-dir", type=str, default=DATASET_CLEAN_DIR, help="Output directory")
-    parser.add_argument("--cache-dir", type=str, default=CACHE_PREP_DIR, help="Cache directory")
-    parser.add_argument("--raw-dir", type=str, default=DATASET_RAW_DIR, help="Raw datasets directory")
+    parser.add_argument("--config", type=str, default=DATA_PATHS['CONFIG_PATH'], help="Path to config YAML file")
+    parser.add_argument("--output-dir", type=str, default=os.path.dirname(DATA_PATHS['DATASET_CLEAN_STATIC_DIR']), help="Output directory")
+    parser.add_argument("--cache-dir", type=str, default=DATA_PATHS['CACHE_PREP_DIR'], help="Cache directory")
+    parser.add_argument("--raw-dir", type=str, default=DATA_PATHS['DATASET_RAW_DIR'], help="Raw datasets directory")
     
     # Processing options
     parser.add_argument("--force", action="store_true", help="Force overwrite existing data")
@@ -97,10 +203,10 @@ def download_datasets(config: Dict, force: bool = False) -> bool:
         True if successful, False otherwise
     """
     logger.info("Starting dataset download stage")
-    ensure_directories_exist([DATASET_RAW_DIR])
+    ensure_directories_exist([DATA_PATHS['DATASET_RAW_DIR']])
     
     # Use centralized function for downloading datasets
-    return download_all_datasets(config, DATASET_RAW_DIR, force)
+    return download_all_datasets(config, DATA_PATHS['DATASET_RAW_DIR'], force)
 
 def view_datasets(args: argparse.Namespace, config: Dict) -> None:
     """

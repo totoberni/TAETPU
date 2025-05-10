@@ -116,6 +116,28 @@ class NERGenerator(TaskGenerator):
                 else:
                     valid_mask = np.ones_like(token_labels, dtype=bool)
             
+            elif hasattr(inp, 'metadata') and 'alignment_map' in inp.metadata:
+                # For static models with transformer alignment
+                alignment_map = inp.metadata['alignment_map']
+                if alignment_map:
+                    # Determine max word index
+                    max_word_idx = max(alignment_map.values()) if alignment_map else 0
+                    
+                    # Initialize labels
+                    token_labels = np.zeros(max_word_idx + 1, dtype=np.int64)
+                    
+                    # Apply entity labels using alignment map
+                    for token_idx, word_idx in alignment_map.items():
+                        if word_idx < len(entities):
+                            entity_label = entities[word_idx]
+                            if entity_label in self.label_to_id:
+                                token_labels[word_idx] = self.label_to_id[entity_label]
+                    
+                    valid_mask = np.ones_like(token_labels, dtype=bool)
+                else:
+                    # Fallback to static model approach
+                    token_labels = np.array([self.label_to_id.get(e, 0) for e in entities], dtype=np.int64)
+                    valid_mask = np.ones_like(token_labels, dtype=bool)
             else:
                 # For static models, use simple mapping
                 token_labels = np.array([self.label_to_id.get(e, 0) for e in entities], dtype=np.int64)
@@ -211,6 +233,27 @@ class POSGenerator(TaskGenerator):
                 else:
                     valid_mask = np.ones_like(token_labels, dtype=bool)
             
+            elif hasattr(inp, 'metadata') and 'alignment_map' in inp.metadata:
+                # For static models with transformer alignment
+                alignment_map = inp.metadata['alignment_map']
+                if alignment_map:
+                    # Determine max word index
+                    max_word_idx = max(alignment_map.values()) if alignment_map else 0
+                    
+                    # Initialize labels
+                    token_labels = np.zeros(max_word_idx + 1, dtype=np.int64)
+                    
+                    # Apply POS labels using alignment map
+                    for token_idx, word_idx in alignment_map.items():
+                        if word_idx < len(pos_tags):
+                            pos_tag = pos_tags[word_idx]
+                            token_labels[word_idx] = self.pos_to_id.get(pos_tag, 0)
+                    
+                    valid_mask = np.ones_like(token_labels, dtype=bool)
+                else:
+                    # Fallback to static model approach
+                    token_labels = np.array([self.pos_to_id.get(p, 0) for p in pos_tags], dtype=np.int64)
+                    valid_mask = np.ones_like(token_labels, dtype=bool)
             else:
                 # For static models, use simple mapping
                 token_labels = np.array([self.pos_to_id.get(p, 0) for p in pos_tags], dtype=np.int64)
