@@ -15,12 +15,6 @@ import numpy as np
 from typing import Dict, List, Any, Callable, Optional, Union, Tuple
 from pathlib import Path
 
-# Import from parent packages
-from ...tpu import (
-    optimize_for_tpu, 
-    pad_sequences
-)
-
 from ...utils import (
     ensure_directories_exist,
     process_in_parallel

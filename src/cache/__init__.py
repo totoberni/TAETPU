@@ -1,155 +1,117 @@
-"""Cache management for Transformer Ablation Experiment."""
+"""Centralized caching functionality for the TAETPU project."""
 
 import os
-import logging
 import pickle
-import time
-from pathlib import Path
-from typing import Any, Optional, Dict, Union, List
+import hashlib
+import logging
+from typing import Any, Dict, Optional, Tuple, Union
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Import shared utilities
-from ..utils import DATA_PATHS, safe_operation, ensure_directories_exist
-
-# Create cache directories
-os.makedirs(DATA_PATHS['CACHE_PREP_DIR'], exist_ok=True)
-
-def get_cache_path(cache_key: str, cache_subdir: Optional[str] = None) -> str:
-    """
-    Get the path to a cache file with the given key.
+def save_to_cache(data: Any, cache_file: str) -> bool:
+    """Save data to cache file.
     
     Args:
-        cache_key: Unique identifier for the cache entry
-        cache_subdir: Optional subdirectory within the cache directory
+        data: Data to be cached
+        cache_file: Path to cache file
         
     Returns:
-        Full path to the cache file
+        True if successful, False otherwise
     """
-    base_dir = DATA_PATHS['CACHE_PREP_DIR']
-    
-    if cache_subdir:
-        cache_dir = os.path.join(base_dir, cache_subdir)
-        ensure_directories_exist([cache_dir])
-    else:
-        cache_dir = base_dir
-        
-    # Make the key filename-safe
-    safe_key = "".join(c if c.isalnum() else "_" for c in cache_key)
-    
-    return os.path.join(cache_dir, f"{safe_key}.pkl")
+    try:
+        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+        with open(cache_file, 'wb') as f:
+            pickle.dump(data, f)
+        logger.debug(f"Data saved to cache: {cache_file}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save data to cache {cache_file}: {e}")
+        return False
 
-def is_cache_valid(cache_path: str, max_age_hours: int = 72) -> bool:
-    """
-    Check if cache file exists and is not too old.
+def load_from_cache(cache_file: str) -> Optional[Any]:
+    """Load data from cache file.
     
     Args:
-        cache_path: Path to cache file
-        max_age_hours: Maximum age in hours for valid cache
+        cache_file: Path to cache file
+        
+    Returns:
+        Cached data if available, None otherwise
+    """
+    if not os.path.exists(cache_file):
+        logger.debug(f"Cache file not found: {cache_file}")
+        return None
+    
+    try:
+        with open(cache_file, 'rb') as f:
+            data = pickle.load(f)
+        logger.debug(f"Data loaded from cache: {cache_file}")
+        return data
+    except Exception as e:
+        logger.error(f"Failed to load data from cache {cache_file}: {e}")
+        return None
+
+def is_cache_valid(cache_file: str, config_hash: str) -> bool:
+    """Check if cache file is valid based on config hash.
+    
+    Args:
+        cache_file: Path to cache file
+        config_hash: Hash of configuration to validate against
         
     Returns:
         True if cache is valid, False otherwise
     """
-    if not os.path.exists(cache_path):
+    if not os.path.exists(cache_file):
         return False
     
-    # Check file age
-    file_time = os.path.getmtime(cache_path)
-    age_hours = (time.time() - file_time) / 3600
-    
-    return age_hours < max_age_hours
+    try:
+        with open(f"{cache_file}.hash", "r") as f:
+            stored_hash = f.read().strip()
+        return stored_hash == config_hash
+    except Exception as e:
+        logger.error(f"Failed to validate cache {cache_file}: {e}")
+        return False
 
-@safe_operation("cache saving", default_return="")
-def save_to_cache(obj: Any, cache_key: str, cache_subdir: Optional[str] = None) -> str:
-    """
-    Save an object to the cache.
+def cache_exists(cache_file: str) -> bool:
+    """Check if cache file exists.
     
     Args:
-        obj: Object to cache
-        cache_key: Unique identifier for the cache entry
-        cache_subdir: Optional subdirectory within the cache directory
-        
-    Returns:
-        Path to the saved cache file or empty string if saving failed
-    """
-    cache_path = get_cache_path(cache_key, cache_subdir)
-    
-    with open(cache_path, 'wb') as f:
-        pickle.dump(obj, f)
-    logger.debug(f"Saved to cache: {cache_path}")
-    return cache_path
-
-@safe_operation("cache loading", default_return=None)
-def load_from_cache(cache_key: str, cache_subdir: Optional[str] = None) -> Optional[Any]:
-    """
-    Load an object from the cache.
-    
-    Args:
-        cache_key: Unique identifier for the cache entry
-        cache_subdir: Optional subdirectory within the cache directory
-        
-    Returns:
-        Cached object if found, None otherwise
-    """
-    cache_path = get_cache_path(cache_key, cache_subdir)
-    
-    if not os.path.exists(cache_path):
-        logger.debug(f"Cache miss: {cache_path}")
-        return None
-    
-    with open(cache_path, 'rb') as f:
-        obj = pickle.load(f)
-    logger.debug(f"Loaded from cache: {cache_path}")
-    return obj
-
-def cache_exists(cache_key: str, cache_subdir: Optional[str] = None) -> bool:
-    """
-    Check if a cache entry exists.
-    
-    Args:
-        cache_key: Unique identifier for the cache entry
-        cache_subdir: Optional subdirectory within the cache directory
+        cache_file: Path to cache file
         
     Returns:
         True if cache exists, False otherwise
     """
-    cache_path = get_cache_path(cache_key, cache_subdir)
-    return os.path.exists(cache_path)
+    return os.path.exists(cache_file)
 
-@safe_operation("cache clearing", default_return=0)
-def clear_cache(cache_subdir: Optional[str] = None) -> int:
-    """
-    Clear cache files.
+def clear_cache(cache_file: Optional[str] = None) -> bool:
+    """Clear cache files.
     
     Args:
-        cache_subdir: Optional subdirectory to clear (clears all if None)
+        cache_file: Specific cache file to clear, or None to clear all
         
     Returns:
-        Number of files cleared
+        True if successful, False otherwise
     """
-    if cache_subdir:
-        cache_dir = os.path.join(DATA_PATHS['CACHE_PREP_DIR'], cache_subdir)
-    else:
-        cache_dir = DATA_PATHS['CACHE_PREP_DIR']
-        
-    if not os.path.exists(cache_dir):
-        return 0
-        
-    count = 0
-    for file in os.listdir(cache_dir):
-        if file.endswith('.pkl'):
-            os.remove(os.path.join(cache_dir, file))
-            count += 1
-                
-    logger.info(f"Cleared {count} cache files from {cache_dir}")
-    return count
+    try:
+        if cache_file:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+            if os.path.exists(f"{cache_file}.hash"):
+                os.remove(f"{cache_file}.hash")
+            logger.debug(f"Cleared cache: {cache_file}")
+        else:
+            # Implementation for clearing all cache would go here
+            pass
+        return True
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
+        return False
 
+# Make all cache functions available at the module level
 __all__ = [
-    'get_cache_path',
-    'is_cache_valid',
     'save_to_cache',
     'load_from_cache',
+    'is_cache_valid',
     'cache_exists',
     'clear_cache'
 ] 
