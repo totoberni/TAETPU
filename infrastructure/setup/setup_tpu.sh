@@ -74,7 +74,10 @@ function setup_docker() {
   
   # Prepare environment variables for container
   TPU_ENV_FLAGS="-e PJRT_DEVICE=TPU"
+  [ -n "${XRT_TPU_CONFIG}" ] && TPU_ENV_FLAGS+=" -e XRT_TPU_CONFIG=\"${XRT_TPU_CONFIG}\""
   [ -n "${XLA_USE_BF16}" ] && TPU_ENV_FLAGS+=" -e XLA_USE_BF16=${XLA_USE_BF16}"
+  [ -n "${XLA_TENSOR_ALLOCATOR_MAXSIZE}" ] && TPU_ENV_FLAGS+=" -e XLA_TENSOR_ALLOCATOR_MAXSIZE=${XLA_TENSOR_ALLOCATOR_MAXSIZE}"
+  [ -n "${TPU_NUM_DEVICES}" ] && TPU_ENV_FLAGS+=" -e TPU_NUM_DEVICES=${TPU_NUM_DEVICES}"
   [ -n "${XLA_FLAGS}" ] && TPU_ENV_FLAGS+=" -e XLA_FLAGS=${XLA_FLAGS}"
   
   # Full container image reference

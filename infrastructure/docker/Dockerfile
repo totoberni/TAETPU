@@ -14,12 +14,12 @@ COPY infrastructure/docker/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt && \
     python -m spacy download en_core_web_sm && \
     pip cache purge
-
 # Create mount directory with proper permissions
 RUN mkdir -p /app/mount && chmod -R 777 /app/mount
 
-# Set TPU-Docker environment variables. Other optional variables set from .env
-ENV PJRT_DEVICE=TPU
+# Add healthcheck to verify TPU setup
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD python -c "import torch_xla.core.xla_model as xm; print(xm.get_xla_supported_devices('TPU'))" || exit 1
 
 # Keep container running
 CMD ["bash", "-c", "tail -f /dev/null"]
