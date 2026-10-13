@@ -16,3 +16,4 @@
 # Logs and local data
 logs/
 *.log
+config/.env

@@ -113,7 +113,8 @@ Your service account requires the following permissions:
 Create and configure your environment variables:
 
 ```bash
-# Create your .env file with your specific settings
+# Copy the template, then edit it with your specific settings
+cp config/.env.template config/.env
 nano config/.env  # or use your preferred editor
 ```
 
